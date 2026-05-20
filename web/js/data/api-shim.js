@@ -10,7 +10,7 @@ import {
   samplesInRange, latestSample, recentEvents,
   getProfile, putProfile,
   getDailyMetric, recentDailyMetrics,
-  workoutsForDate, sleepStagesForDate,
+  workoutsForDate, sleepStagesForDate, patchWorkoutLabel,
 } from './queries.js';
 import { rollupDay, recomputeRecent, rollupMissing } from '../metrics/rollup.js';
 import { maxHr } from '../metrics/zones.js';
@@ -365,6 +365,12 @@ async function handle(url, opts = {}) {
   if (method === 'POST' && path === '/api/recompute') {
     const age = qs.get('age');
     return apiRecompute(age ? parseInt(age, 10) : null);
+  }
+  if (method === 'POST' && path === '/api/workout-label') {
+    const body = opts.body ? JSON.parse(opts.body) : {};
+    const d = await openDb();
+    await patchWorkoutLabel(d, body.id, body.label ?? '');
+    return { ok: true };
   }
 
   // GET endpoints

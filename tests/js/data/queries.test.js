@@ -7,6 +7,7 @@ import {
   getProfile, putProfile,
   upsertDailyMetric, getDailyMetric, recentDailyMetrics,
   upsertJournalEntry, journalForDate, recentJournalEntries, deleteJournalEntry,
+  replaceWorkoutsForDate, workoutsForDate, patchWorkoutLabel,
 } from '../../../web/js/data/queries.js';
 
 const TEST_DB = 'whoopfree-queries-test';
@@ -158,5 +159,36 @@ describe('daily_metrics', () => {
     }
     const rows = await recentDailyMetrics(db, 3);
     expect(rows.map((r) => r.date)).toEqual(['2026-05-19', '2026-05-18', '2026-05-17']);
+  });
+});
+
+describe('workouts patchWorkoutLabel', () => {
+  it('sets label on an existing workout', async () => {
+    await replaceWorkoutsForDate(db, '2026-05-20', [
+      { date: '2026-05-20', start_utc: '2026-05-20T17:00:00Z', end_utc: '2026-05-20T18:00:00Z',
+        duration_seconds: 3600, avg_hr: 145, max_hr: 180, strain: 14.5,
+        calories: 620, zone_seconds: null, label: null, auto_detected: true },
+    ]);
+    const [before] = await workoutsForDate(db, '2026-05-20');
+    expect(before.label).toBeNull();
+    await patchWorkoutLabel(db, before.id, 'Running');
+    const [after] = await workoutsForDate(db, '2026-05-20');
+    expect(after.label).toBe('Running');
+  });
+
+  it('clears label when passed empty string', async () => {
+    await replaceWorkoutsForDate(db, '2026-05-20', [
+      { date: '2026-05-20', start_utc: '2026-05-20T17:00:00Z', end_utc: '2026-05-20T18:00:00Z',
+        duration_seconds: 3600, avg_hr: 145, max_hr: 180, strain: 14.5,
+        calories: 620, zone_seconds: null, label: 'Cycling', auto_detected: true },
+    ]);
+    const [row] = await workoutsForDate(db, '2026-05-20');
+    await patchWorkoutLabel(db, row.id, '');
+    const [after] = await workoutsForDate(db, '2026-05-20');
+    expect(after.label).toBeNull();
+  });
+
+  it('is a no-op for a non-existent id', async () => {
+    await expect(patchWorkoutLabel(db, 99999, 'Ghost')).resolves.toBeUndefined();
   });
 });

@@ -429,10 +429,14 @@ function renderWorkoutList(el, workouts) {
   el.innerHTML = workouts.map((w) => {
     const start = new Date(w.start_utc);
     const dur = Math.round((w.duration_seconds || 0) / 60);
-    return `<div class="workout-row">
+    const labelHtml = w.label
+      ? `<span class="pill workout-label" style="cursor:pointer;" title="Click to rename">${w.label}</span>`
+      : `<span class="workout-label-add" data-id="${w.id}" style="font-size:10px;color:var(--muted);cursor:pointer;" title="Add label">✎ label</span>`;
+    return `<div class="workout-row" data-workout-id="${w.id}">
       <div>
         <div>${start.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
         <div class="when">${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${dur} min</div>
+        ${labelHtml}
       </div>
       <div class="pill">avg ${fmtInt(w.avg_hr)} bpm</div>
       <div class="pill">max ${fmtInt(w.max_hr)}</div>
@@ -440,6 +444,39 @@ function renderWorkoutList(el, workouts) {
       <div class="strain-num">${(w.strain ?? 0).toFixed(1)}</div>
     </div>`;
   }).join("");
+
+  // Wire inline label editing.
+  el.querySelectorAll(".workout-label, .workout-label-add").forEach((trigger) => {
+    trigger.addEventListener("click", (ev) => {
+      const row = ev.target.closest("[data-workout-id]");
+      if (!row) return;
+      const id = parseInt(row.dataset.workoutId, 10);
+      const current = trigger.classList.contains("pill") ? trigger.textContent : "";
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.value = current;
+      inp.placeholder = "e.g. Running";
+      inp.style.cssText = "font-size:10px;padding:2px 5px;border-radius:4px;border:1px solid var(--border);background:var(--bg-3);color:var(--fg);width:90px;";
+      trigger.replaceWith(inp);
+      inp.focus();
+      inp.select();
+      const save = async () => {
+        const label = inp.value.trim();
+        try {
+          await fetchJSON("/api/workout-label", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, label }),
+          });
+        } catch {}
+        // Re-render by reloading the active tab.
+        if (location.hash === "#strain") loadStrain();
+        else if (location.hash === "" || location.hash === "#overview") loadOverview();
+      };
+      inp.addEventListener("blur", save);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } else if (e.key === "Escape") inp.blur(); });
+    });
+  });
 }
 
 /* ───────────────────────────── Recovery tab ────────────────────────── */

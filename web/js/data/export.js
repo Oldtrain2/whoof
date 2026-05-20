@@ -93,7 +93,7 @@ export async function exportDailyMetricsCsv(db = null) {
   rows.sort((a, b) => (a.date < b.date ? -1 : 1));
   const header = [
     'date', 'avg_hr', 'min_hr', 'max_hr', 'resting_hr',
-    'rmssd_ms', 'sdnn_ms', 'pnn50_pct',
+    'rmssd_ms', 'sdnn_ms', 'pnn50_pct', 'hrv_baseline_ms',
     'avg_spo2', 'avg_skin_temp_c', 'skin_temp_deviation_c',
     'strain_score', 'recovery_score',
     'recovery_hrv_component', 'recovery_rhr_component',
@@ -111,7 +111,7 @@ export async function exportDailyMetricsCsv(db = null) {
     const z = Array.isArray(r.zone_minutes) ? r.zone_minutes : [null, null, null, null, null];
     lines.push(csvRow([
       r.date, r.avg_hr, r.min_hr, r.max_hr, r.resting_hr,
-      r.rmssd_ms, r.sdnn_ms, r.pnn50_pct,
+      r.rmssd_ms, r.sdnn_ms, r.pnn50_pct, r.hrv_baseline_ms,
       r.avg_spo2, r.avg_skin_temp_c, r.skin_temp_deviation_c,
       r.strain_score, r.recovery_score,
       r.recovery_hrv_component, r.recovery_rhr_component,

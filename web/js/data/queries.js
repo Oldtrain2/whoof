@@ -251,6 +251,21 @@ export async function recentJournalEntries(db, days = 30) {
   return all.sort((a, b) => (a.date > b.date ? -1 : 1)).slice(0, days);
 }
 
+/**
+ * Update the label field of a single workout row.
+ * @param {IDBDatabase} db
+ * @param {number} id   - workout row id (keyPath)
+ * @param {string} label - new label (empty string clears it)
+ */
+export async function patchWorkoutLabel(db, id, label) {
+  const tx = db.transaction('workouts', 'readwrite');
+  const store = tx.objectStore('workouts');
+  const row = await req2promise(store.get(id));
+  if (!row) { await txDone(tx); return; }
+  store.put({ ...row, label: label || null });
+  await txDone(tx);
+}
+
 export async function deleteJournalEntry(db, dateIso) {
   const tx = db.transaction('journal', 'readwrite');
   const store = tx.objectStore('journal');
