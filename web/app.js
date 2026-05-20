@@ -698,18 +698,45 @@ async function loadTrends() {
   $("trend-title").textContent = `${metricLabel(metric)} · ${days} days`;
 
   const labels = trend.series.map((r) => r.date.slice(5));
+  const rawValues = trend.series.map((r) => r.value);
+
+  // 7-day centred rolling average overlay.
+  const W = 7;
+  const rolling = rawValues.map((_, i) => {
+    const half = Math.floor(W / 2);
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(rawValues.length, i + half + 1);
+    const window = rawValues.slice(lo, hi).filter((v) => v != null);
+    return window.length ? window.reduce((a, b) => a + b, 0) / window.length : null;
+  });
+
   makeOrUpdate("trend-main", {
     type: "line",
-    data: { labels, datasets: [{
-      label: metricLabel(metric),
-      data: trend.series.map((r) => r.value),
-      borderColor: metricColor(metric),
-      backgroundColor: metricColor(metric) + "22",
-      borderWidth: 2,
-      pointRadius: 2,
-      tension: 0.3,
-      fill: true,
-    }] },
+    data: { labels, datasets: [
+      {
+        label: metricLabel(metric),
+        data: rawValues,
+        borderColor: metricColor(metric),
+        backgroundColor: metricColor(metric) + "22",
+        borderWidth: 1.5,
+        pointRadius: 1.5,
+        tension: 0.2,
+        fill: true,
+        order: 2,
+      },
+      {
+        label: "7-day avg",
+        data: rolling,
+        borderColor: metricColor(metric),
+        backgroundColor: "transparent",
+        borderWidth: 2.5,
+        borderDash: [4, 3],
+        pointRadius: 0,
+        tension: 0.4,
+        fill: false,
+        order: 1,
+      },
+    ] },
     options: commonOpts(),
   });
 
