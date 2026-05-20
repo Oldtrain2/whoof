@@ -1315,7 +1315,7 @@ window.addEventListener('whoop-data-changed', () => renderTagCorrelations());
 function recoveryColor(score) {
   if (score == null) return 'var(--bg-3)';
   if (score >= 67)   return 'var(--rec-good)';   // green
-  if (score >= 34)   return 'var(--rec-warn)';   // yellow
+  if (score >= 34)   return 'var(--rec-mid)';   // yellow
   return 'var(--rec-bad)';                        // red
 }
 
@@ -1358,7 +1358,7 @@ async function renderRecoveryCal() {
     const legend = `
       <div style="display:flex; gap:6px; align-items:center; margin-top:8px; font-size:10px; color:var(--muted);">
         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--rec-good);"></span>Green (67–100)
-        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--rec-warn);"></span>Yellow (34–66)
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--rec-mid);"></span>Yellow (34–66)
         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--rec-bad);"></span>Red (0–33)
         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--bg-3);opacity:.35;border:1px solid var(--border);"></span>No data
       </div>`;
