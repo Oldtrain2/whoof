@@ -679,6 +679,16 @@ refreshCapturesList().catch(() => {});
 
 // ----- Daily training plan -------------------------------------------------
 
+// Map plan zones → inline SVG illustrations. Each renders at currentColor
+// (i.e. the plan's color) so it harmonises with the label colour.
+const PLAN_SVG = {
+  rest: '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 44 V32 a4 4 0 0 1 4-4 h26 a8 8 0 0 1 8 8 v8"/><path d="M4 48 H56"/><path d="M4 48 V52"/><path d="M56 48 V52"/><circle cx="18" cy="30" r="4" fill="currentColor" stroke="none" opacity="0.4"/><text x="48" y="22" font-size="11" font-weight="700" fill="currentColor" stroke="none" font-family="Inter,sans-serif">z</text><text x="54" y="16" font-size="9" font-weight="700" fill="currentColor" stroke="none" font-family="Inter,sans-serif" opacity="0.6">z</text></svg>',
+  recover: '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="34" cy="14" r="4"/><path d="M32 22 v10 l-8 18"/><path d="M32 26 l10 6 6 -4"/><path d="M24 50 l-4 4"/><path d="M40 50 l4 6"/></svg>',
+  moderate: '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="16" cy="46" r="10"/><circle cx="48" cy="46" r="10"/><path d="M16 46 L30 22 L44 38 L48 46"/><path d="M28 20 H36"/></svg>',
+  push: '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="22" width="8" height="20" rx="2"/><rect x="52" y="22" width="8" height="20" rx="2"/><rect x="14" y="26" width="6" height="12" rx="1"/><rect x="44" y="26" width="6" height="12" rx="1"/><path d="M20 32 H44"/></svg>',
+  allout: '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M32 6 C 20 18 16 28 16 36 a16 16 0 0 0 32 0 c0 -8 -4 -18 -16 -30 z"/><path d="M26 36 c0 -4 2 -8 6 -12 c4 4 6 8 6 12 a6 6 0 0 1 -12 0 z"/></svg>',
+};
+
 async function renderDailyPlan() {
   const zoneEl = document.getElementById('plan-zone');
   const labelEl = document.getElementById('plan-label');
@@ -704,7 +714,18 @@ async function renderDailyPlan() {
       lowStreakDays,
     });
 
-    zoneEl.textContent = plan.emoji;
+    // Render SVG illustration (fallback to emoji if zone unknown).
+    const svg = PLAN_SVG[plan.zone] ?? null;
+    if (svg) {
+      zoneEl.innerHTML = svg;
+      zoneEl.style.color = plan.color;
+      zoneEl.style.width = "56px";
+      zoneEl.style.height = "56px";
+      zoneEl.style.display = "block";
+      zoneEl.style.filter = `drop-shadow(0 0 18px ${plan.color}55)`;
+    } else {
+      zoneEl.textContent = plan.emoji;
+    }
     if (labelEl) { labelEl.textContent = plan.label; labelEl.style.color = plan.color; }
     if (msgEl) {
       // Show the day-specific rationale (with actual numbers) then the zone's general advice.
@@ -781,11 +802,16 @@ async function renderInsights() {
       counter.textContent = insights.length;
       counter.style.display = insights.length ? 'inline-flex' : 'none';
     }
+    card.style.display = '';
     if (!insights.length) {
-      card.style.display = 'none';
+      list.innerHTML = `
+        <div class="empty-state" style="padding:20px 8px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 L9 17 L4 12"/></svg>
+          <div style="font-weight:600; color:var(--text-2);">All clear</div>
+          <div style="font-size:11px; color:var(--text-muted);">Insights surface when patterns emerge in your data.</div>
+        </div>`;
       return;
     }
-    card.style.display = '';
     list.innerHTML = insights.map((ins) => `
       <div class="insight ${ins.severity}">
         <span class="ins-icon">${INSIGHT_SVG[ins.severity] ?? INSIGHT_SVG.info}</span>

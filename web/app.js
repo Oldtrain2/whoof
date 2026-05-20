@@ -183,7 +183,23 @@ async function refreshStatus() {
 const charts = {};
 function makeOrUpdate(id, cfg) {
   if (charts[id]) charts[id].destroy();
+  // Auto-hide legend on single-series charts
+  cfg.options = autoHideLegend(cfg.options, cfg.data);
   charts[id] = new Chart($(id), cfg);
+}
+
+/**
+ * Auto-disable the legend on single-series charts (visual noise).
+ * Adapts a Chart.js options block based on its data.
+ */
+function autoHideLegend(opts, data) {
+  const n = (data?.datasets?.length) || 0;
+  if (n <= 1) {
+    opts = opts || {};
+    opts.plugins = opts.plugins || {};
+    opts.plugins.legend = { ...(opts.plugins.legend || {}), display: false };
+  }
+  return opts;
 }
 function commonOpts(extra = {}) {
   return {
@@ -306,6 +322,30 @@ function drawGaugeRing(svg, score, color /*, formatFn, maxVal=100 */, formatFn, 
 const STAGE_ORDER = ["wake", "rem", "light", "deep"]; // top→bottom
 
 function drawHypnogram(svg, stages) {
+  // Empty state: friendly moon illustration + caption
+  if (!stages || !stages.length) {
+    svg.setAttribute("viewBox", "0 0 1000 220");
+    svg.innerHTML = `
+      <defs>
+        <radialGradient id="moonGrad" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#2547D4" stop-opacity="0.25"/>
+          <stop offset="100%" stop-color="#2547D4" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <circle cx="500" cy="100" r="80" fill="url(#moonGrad)"/>
+      <path d="M 530 70 A 38 38 0 1 0 530 130 A 28 28 0 1 1 530 70 Z" fill="#4D7CFF" opacity="0.85"/>
+      <circle cx="430" cy="55" r="1.5" fill="#4D7CFF" opacity="0.6"/>
+      <circle cx="570" cy="40" r="1.5" fill="#4D7CFF" opacity="0.6"/>
+      <circle cx="600" cy="160" r="1.2" fill="#4D7CFF" opacity="0.5"/>
+      <circle cx="410" cy="170" r="1.2" fill="#4D7CFF" opacity="0.5"/>
+      <text x="500" y="200" text-anchor="middle" fill="${COLORS.muted}" style="font-size:13px;font-weight:500;font-family:Inter,system-ui,sans-serif;">No sleep recorded for this night</text>
+    `;
+    return;
+  }
+  return _drawHypnogramReal(svg, stages);
+}
+
+function _drawHypnogramReal(svg, stages) {
   const width = 1000, height = 220, padTop = 20, padBottom = 30, padLR = 8;
   const rowH = (height - padTop - padBottom) / STAGE_ORDER.length;
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);

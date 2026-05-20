@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Manrope:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="/styles.css?v=2" />
 </head>
 <body>
 <aside class="sidebar">
@@ -270,21 +270,21 @@
     </div>
 
     <div class="grid">
-      <div class="card">
+      <div class="card span-2">
         <span class="card-eyebrow">Live heart rate</span>
-        <div class="now-tile">
-          <div class="now-hr">
+        <div class="now-tile" style="grid-template-columns: auto 1fr; gap: 24px;">
+          <div class="now-hr" style="font-size:64px;">
             <span id="now-hr">—</span><span class="unit">bpm</span>
             <span class="heart-pulse">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.65A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.65A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg>
             </span>
           </div>
-        </div>
-        <div class="now-grid" style="margin-top:14px;">
-          <div><span class="lbl">SpO₂</span><span id="now-spo2">—</span></div>
-          <div><span class="lbl">Skin temp</span><span id="now-temp">—</span></div>
-          <div><span class="lbl">Battery</span><span id="now-battery">—</span></div>
-          <div><span class="lbl">Updated</span><span id="now-ago">—</span></div>
+          <div class="now-grid">
+            <div><span class="lbl">SpO₂</span><span id="now-spo2">—</span></div>
+            <div><span class="lbl">Skin temp</span><span id="now-temp">—</span></div>
+            <div><span class="lbl">Battery</span><span id="now-battery">—</span></div>
+            <div><span class="lbl">Updated</span><span id="now-ago">—</span></div>
+          </div>
         </div>
       </div>
 
@@ -296,7 +296,7 @@
         <div id="plan-target"></div>
       </div>
 
-      <div class="card card-insights" id="insights-card" style="display:none;">
+      <div class="card card-insights span-2" id="insights-card">
         <span class="card-eyebrow">Insights</span>
         <div id="insights-list" style="display:flex; flex-direction:column; gap:8px; margin-top:6px;"></div>
       </div>
