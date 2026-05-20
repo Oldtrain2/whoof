@@ -95,11 +95,12 @@ that round-trips through `shortcuts://x-callback-url`.
 - **Daily training plan** — rest / active / train / push recommendation driven
   by today's recovery score, 7-day strain load, and accumulated sleep debt.
   Includes the day-specific rationale (actual numbers) alongside the zone advice.
-- **Health insights engine** — 11 generators watching HRV trend, RHR trend,
+- **Health insights engine** — 12 generators watching HRV trend, RHR trend,
   sleep debt, sleep consistency, recovery streaks, strain/recovery balance,
   skin temp deviation, respiratory rate drift, sleep duration trend, SpO₂
-  anomaly (flags avg sleep SpO₂ < 95% / < 93% as a potential sleep-apnoea
-  signal), and sleep performance (flags efficiency below 70% / 55%).
+  anomaly (< 95% / < 93%), sleep performance (< 70% / < 55%), and
+  **Acute:Chronic Workload Ratio** (ACWR) — flags training spikes above 1.5×
+  or detraining below 0.6× the chronic baseline, reducing injury risk.
 - **Weekly summary** — emoji-formatted 7-day recap in the Trends tab; the
   top-3 personalised tag insights are appended automatically.
 - **Poincaré plot** — SD1/SD2 scatter from last night's RR intervals, rendered

@@ -330,3 +330,63 @@ describe('Sleep efficiency insights', () => {
     expect(ins.find((i) => i.id?.startsWith('sleep-perf'))).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// ACWR (Acute:Chronic Workload Ratio)
+// ---------------------------------------------------------------------------
+
+describe('ACWR insights', () => {
+  /** Build 14 metrics: acute 7 days at acuteStrain, chronic 7 days at chronicStrain. */
+  function makeAcwr(acuteStrain, chronicStrain) {
+    const row = (s) => ({
+      rmssd_ms: 55, resting_hr: 50, recovery_score: 60, strain_score: s,
+      sleep_minutes: 450, sleep_debt_minutes: 0, sleep_consistency_pct: 85,
+      respiratory_rate: 14, avg_skin_temp_c: 33.5, skin_temp_deviation_c: 0.0,
+      avg_spo2: 97, sleep_performance_pct: 80,
+    });
+    return [
+      ...Array(7).fill(null).map(() => row(acuteStrain)),   // newest 7
+      ...Array(7).fill(null).map(() => row(chronicStrain)),  // older 7
+    ];
+  }
+
+  it('flags ACWR > 1.5 as warn', () => {
+    // Acute 16, chronic 10 → ratio 1.6
+    const metrics = makeAcwr(16, 10);
+    const ins = generateInsights(metrics);
+    const alert = ins.find((i) => i.id === 'acwr-high');
+    expect(alert).toBeDefined();
+    expect(alert.severity).toBe('warn');
+  });
+
+  it('flags ACWR 1.3–1.5 as info', () => {
+    // Acute 14, chronic 10 → ratio 1.4
+    const metrics = makeAcwr(14, 10);
+    const ins = generateInsights(metrics);
+    const alert = ins.find((i) => i.id === 'acwr-elevated');
+    expect(alert).toBeDefined();
+    expect(alert.severity).toBe('info');
+  });
+
+  it('flags ACWR < 0.6 as info', () => {
+    // Acute 5, chronic 10 → ratio 0.5
+    const metrics = makeAcwr(5, 10);
+    const ins = generateInsights(metrics);
+    const alert = ins.find((i) => i.id === 'acwr-low');
+    expect(alert).toBeDefined();
+  });
+
+  it('does not fire for ratio in sweet spot (0.8–1.3)', () => {
+    // Acute 10, chronic 10 → ratio 1.0
+    const metrics = makeAcwr(10, 10);
+    const ins = generateInsights(metrics);
+    expect(ins.find((i) => i.id?.startsWith('acwr'))).toBeUndefined();
+  });
+
+  it('does not fire when fewer than 5 chronic days', () => {
+    // Only 7 total rows — not enough chronic period
+    const metrics = makeMetrics(Array(7).fill({ strain_score: 18 }));
+    const ins = generateInsights(metrics);
+    expect(ins.find((i) => i.id?.startsWith('acwr'))).toBeUndefined();
+  });
+});

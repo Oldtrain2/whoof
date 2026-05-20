@@ -246,6 +246,54 @@ function sleepDurationTrend(chrono) {
   return null;
 }
 
+/**
+ * Acute:Chronic Workload Ratio (ACWR) — compares 7-day avg strain against
+ * the prior baseline period. 0.8–1.3 is the "sweet spot"; outside that range
+ * signals overreaching (>1.3) or detraining (<0.8).
+ * Requires at least 14 days of data to compute a meaningful chronic baseline.
+ */
+function acwr(slice) {
+  // Acute = most recent 7 days; Chronic = days 8+ (up to 28 days).
+  const acute = slice.slice(0, 7).map((m) => m.strain_score).filter((v) => v != null);
+  const chronic = slice.slice(7, 28).map((m) => m.strain_score).filter((v) => v != null);
+  if (acute.length < 5 || chronic.length < 5) return null;
+  const acuteMean   = mean(acute);
+  const chronicMean = mean(chronic);
+  if (!chronicMean) return null;
+  const ratio = acuteMean / chronicMean;
+  if (ratio > 1.5) {
+    return {
+      id: 'acwr-high',
+      severity: 'warn',
+      title: `Training spike (ACWR ${ratio.toFixed(2)})`,
+      body: `7-day avg strain (${acuteMean.toFixed(1)}) is ${(ratio * 100 - 100).toFixed(0)}% above your chronic baseline (${chronicMean.toFixed(1)}). Ratios above 1.5 are associated with elevated injury risk — consider a recovery day.`,
+      metric: 'strain_score',
+      trend: 'up',
+    };
+  }
+  if (ratio > 1.3) {
+    return {
+      id: 'acwr-elevated',
+      severity: 'info',
+      title: `Training load rising (ACWR ${ratio.toFixed(2)})`,
+      body: `Acute strain load is ${(ratio * 100 - 100).toFixed(0)}% above your chronic baseline. The 0.8–1.3 "sweet spot" keeps adaptation high and injury risk low.`,
+      metric: 'strain_score',
+      trend: 'up',
+    };
+  }
+  if (ratio < 0.6) {
+    return {
+      id: 'acwr-low',
+      severity: 'info',
+      title: `Training load low (ACWR ${ratio.toFixed(2)})`,
+      body: `7-day avg strain (${acuteMean.toFixed(1)}) is well below your chronic baseline (${chronicMean.toFixed(1)}). If recovery is green, this is a good week to ramp back up.`,
+      metric: 'strain_score',
+      trend: 'down',
+    };
+  }
+  return null;
+}
+
 function sleepEfficiency(slice) {
   const vals = slice.map((m) => m.sleep_performance_pct).filter((v) => v != null);
   if (vals.length < MIN_DAYS) return null;
@@ -331,6 +379,7 @@ export function generateInsights(metrics, { days = 14 } = {}) {
     respiratoryRateAlert(slice),
     spo2Alert(slice),
     sleepEfficiency(slice),
+    acwr(slice),
   ];
 
   return candidates
