@@ -49,3 +49,29 @@ export function strainScore(hrBpm, age = 30, restingHr = null) {
   const load = sumSq * ((minutes / Math.max(samples.length, 1)) * 60);
   return Math.round(21.0 * (1.0 - Math.exp(-load / 100.0)) * 100) / 100;
 }
+
+/**
+ * Acute:Chronic Workload Ratio. Compares short-term (acute) strain
+ * exposure to a longer-term (chronic) baseline. A ratio of 0.8–1.3 is
+ * the canonical "sweet spot"; outside that range is associated with
+ * either elevated injury risk (>1.3) or detraining (<0.6).
+ *
+ * @param {ReadonlyArray<number|null|undefined>} strainSeries
+ *        Strain scores in newest-first order (latest at index 0).
+ * @param {Object} [opts]
+ * @param {number} [opts.acuteDays=7]    Window for acute mean
+ * @param {number} [opts.chronicDays=21] Max window for chronic mean
+ *        (taken from indices acuteDays … acuteDays+chronicDays-1)
+ * @param {number} [opts.minSamples=5]   Minimum non-null values per window
+ * @returns {{ratio:number, acute:number, chronic:number}|null}
+ */
+export function acwr(strainSeries, { acuteDays = 7, chronicDays = 21, minSamples = 5 } = {}) {
+  if (!Array.isArray(strainSeries)) return null;
+  const acute = strainSeries.slice(0, acuteDays).filter((v) => v != null);
+  const chronic = strainSeries.slice(acuteDays, acuteDays + chronicDays).filter((v) => v != null);
+  if (acute.length < minSamples || chronic.length < minSamples) return null;
+  const acuteMean = acute.reduce((a, b) => a + b, 0) / acute.length;
+  const chronicMean = chronic.reduce((a, b) => a + b, 0) / chronic.length;
+  if (!chronicMean) return null;
+  return { ratio: acuteMean / chronicMean, acute: acuteMean, chronic: chronicMean };
+}

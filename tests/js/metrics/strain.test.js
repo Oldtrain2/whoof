@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { strainScore } from '../../../web/js/metrics/strain.js';
+import { strainScore, acwr } from '../../../web/js/metrics/strain.js';
 
 describe('strainScore', () => {
   it('is near zero at rest', () => {
@@ -25,5 +25,71 @@ describe('strainScore', () => {
     const score = strainScore(hr, 30, 50.0);
     expect(score).toBeGreaterThanOrEqual(0.0);
     expect(score).toBeLessThanOrEqual(21.0);
+  });
+});
+
+describe('acwr', () => {
+  // helper: build newest→oldest strain array
+  const series = (...vals) => vals;
+
+  it('returns null with too few samples', () => {
+    expect(acwr([])).toBeNull();
+    expect(acwr(series(10, 10, 10, 10, 10))).toBeNull();          // no chronic days
+    expect(acwr(series(10, 10, 10, 10, 10, 10, 10, 8, 8))).toBeNull(); // chronic only 2 valid
+  });
+
+  it('returns null for non-array input', () => {
+    expect(acwr(null)).toBeNull();
+    expect(acwr(undefined)).toBeNull();
+    expect(acwr('not-array')).toBeNull();
+  });
+
+  it('computes ratio 1.0 when acute and chronic means match', () => {
+    const r = acwr(series(10, 10, 10, 10, 10, 10, 10,    10, 10, 10, 10, 10, 10, 10));
+    expect(r).not.toBeNull();
+    expect(r.ratio).toBeCloseTo(1.0, 4);
+    expect(r.acute).toBeCloseTo(10, 4);
+    expect(r.chronic).toBeCloseTo(10, 4);
+  });
+
+  it('detects training spike (acute > chronic)', () => {
+    // Acute mean 18, chronic mean 9 → ratio 2.0
+    const r = acwr(series(18, 18, 18, 18, 18, 18, 18,    9, 9, 9, 9, 9, 9, 9));
+    expect(r.ratio).toBeCloseTo(2.0, 4);
+  });
+
+  it('detects detraining (acute < chronic)', () => {
+    const r = acwr(series(4, 4, 4, 4, 4, 4, 4,    12, 12, 12, 12, 12, 12, 12));
+    expect(r.ratio).toBeCloseTo(4 / 12, 4);
+  });
+
+  it('skips nulls in either window', () => {
+    const r = acwr(series(10, null, 10, 10, 10, 10, 10,    20, null, 20, 20, 20, 20, 20));
+    expect(r).not.toBeNull();
+    expect(r.acute).toBeCloseTo(10, 4);
+    expect(r.chronic).toBeCloseTo(20, 4);
+    expect(r.ratio).toBeCloseTo(0.5, 4);
+  });
+
+  it('returns null when chronic mean is zero', () => {
+    // All chronic days are 0
+    const r = acwr(series(10, 10, 10, 10, 10, 10, 10,    0, 0, 0, 0, 0, 0, 0));
+    expect(r).toBeNull();
+  });
+
+  it('respects custom acuteDays/chronicDays', () => {
+    // 3-day acute (mean 15), 5-day chronic (mean 10) → ratio 1.5
+    const r = acwr(series(15, 15, 15,    10, 10, 10, 10, 10), {
+      acuteDays: 3,
+      chronicDays: 5,
+      minSamples: 3,
+    });
+    expect(r.ratio).toBeCloseTo(1.5, 4);
+  });
+
+  it('honours minSamples threshold', () => {
+    // Default minSamples is 5; here acute has 4 valid → null
+    const r = acwr(series(10, 10, 10, 10, null, null, null,    10, 10, 10, 10, 10, 10, 10));
+    expect(r).toBeNull();
   });
 });

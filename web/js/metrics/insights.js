@@ -7,6 +7,8 @@
 //   severity: 'info' | 'warn' | 'critical'
 //   trend:    'up' | 'down' | 'stable' | null
 
+import { acwr as computeAcwr } from './strain.js';
+
 const MIN_DAYS = 3; // minimum days before generating trend insights
 
 function mean(arr) {
@@ -292,13 +294,9 @@ function trainingMonotony(chrono) {
  */
 function acwr(slice) {
   // Acute = most recent 7 days; Chronic = days 8+ (up to 28 days).
-  const acute = slice.slice(0, 7).map((m) => m.strain_score).filter((v) => v != null);
-  const chronic = slice.slice(7, 28).map((m) => m.strain_score).filter((v) => v != null);
-  if (acute.length < 5 || chronic.length < 5) return null;
-  const acuteMean   = mean(acute);
-  const chronicMean = mean(chronic);
-  if (!chronicMean) return null;
-  const ratio = acuteMean / chronicMean;
+  const info = computeAcwr(slice.map((m) => m.strain_score), { acuteDays: 7, chronicDays: 21 });
+  if (!info) return null;
+  const { ratio, acute: acuteMean, chronic: chronicMean } = info;
   if (ratio > 1.5) {
     return {
       id: 'acwr-high',

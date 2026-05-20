@@ -16,6 +16,7 @@ import {
 import { rollupDay, recomputeRecent, rollupMissing } from '../metrics/rollup.js';
 import { maxHr } from '../metrics/zones.js';
 import { sleepQualityScore } from '../metrics/sleep.js';
+import { acwr as computeAcwr } from '../metrics/strain.js';
 
 const VALID_TREND_METRICS = new Set([
   'rmssd_ms', 'resting_hr', 'recovery_score', 'strain_score',
@@ -292,25 +293,20 @@ async function apiStrain(dayIso) {
   // Acute:Chronic Workload Ratio — 7d acute / prior 21d chronic
   const strainVals = history
     .filter((row) => row.date <= day)
-    .map((r) => r.strain_score)
-    .filter((v) => v != null);
+    .map((r) => r.strain_score);
   let acwrInfo = null;
-  if (strainVals.length >= 10) {
-    const acute = strainVals.slice(0, 7);
-    const chronic = strainVals.slice(7, 28);
-    if (acute.length >= 5 && chronic.length >= 5) {
-      const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
-      const acuteMean = mean(acute);
-      const chronicMean = mean(chronic);
-      const ratio = chronicMean ? acuteMean / chronicMean : null;
-      if (ratio != null) {
-        let band = 'sweet-spot';
-        if      (ratio > 1.5) band = 'high-risk';
-        else if (ratio > 1.3) band = 'elevated';
-        else if (ratio < 0.6) band = 'detraining';
-        acwrInfo = { ratio: Math.round(ratio * 100) / 100, acute: acuteMean, chronic: chronicMean, band };
-      }
-    }
+  const info = computeAcwr(strainVals, { acuteDays: 7, chronicDays: 21 });
+  if (info) {
+    let band = 'sweet-spot';
+    if      (info.ratio > 1.5) band = 'high-risk';
+    else if (info.ratio > 1.3) band = 'elevated';
+    else if (info.ratio < 0.6) band = 'detraining';
+    acwrInfo = {
+      ratio: Math.round(info.ratio * 100) / 100,
+      acute: info.acute,
+      chronic: info.chronic,
+      band,
+    };
   }
 
   return { date: day, summary: m ?? null, curve: series, workouts, trend, acwr: acwrInfo };
