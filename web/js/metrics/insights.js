@@ -246,6 +246,33 @@ function sleepDurationTrend(chrono) {
   return null;
 }
 
+function sleepEfficiency(slice) {
+  const vals = slice.map((m) => m.sleep_performance_pct).filter((v) => v != null);
+  if (vals.length < MIN_DAYS) return null;
+  const avg = mean(vals);
+  if (avg < 55) {
+    return {
+      id: 'sleep-perf-poor',
+      severity: 'warn',
+      title: `Sleep performance ${avg.toFixed(0)}%`,
+      body: `Average sleep performance is only ${avg.toFixed(0)}%. Consider consistent bedtimes, cutting caffeine by early afternoon, and limiting screens before sleep.`,
+      metric: 'sleep_performance_pct',
+      trend: 'down',
+    };
+  }
+  if (avg < 70) {
+    return {
+      id: 'sleep-perf-low',
+      severity: 'info',
+      title: `Sleep performance ${avg.toFixed(0)}%`,
+      body: `Average sleep performance is ${avg.toFixed(0)}% — below the 70% target. Aim for a consistent bedtime and uninterrupted 7–9h of sleep.`,
+      metric: 'sleep_performance_pct',
+      trend: 'down',
+    };
+  }
+  return null;
+}
+
 function spo2Alert(slice) {
   const vals = slice.slice(0, 3).map((m) => m.avg_spo2).filter((v) => v != null);
   if (vals.length < 2) return null;
@@ -303,6 +330,7 @@ export function generateInsights(metrics, { days = 14 } = {}) {
     skinTempAlert(slice),
     respiratoryRateAlert(slice),
     spo2Alert(slice),
+    sleepEfficiency(slice),
   ];
 
   return candidates

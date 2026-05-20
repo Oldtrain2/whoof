@@ -21,6 +21,7 @@ function makeMetrics(overrides = []) {
     avg_skin_temp_c: 33.5,
     skin_temp_deviation_c: 0.0,
     avg_spo2: 97,
+    sleep_performance_pct: 80,
   };
   return overrides.map((o) => ({ ...base, ...o }));
 }
@@ -299,5 +300,33 @@ describe('SpO₂ insights', () => {
     ]);
     const ins = generateInsights(metrics);
     expect(ins.find((i) => i.id?.startsWith('spo2'))).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sleep efficiency
+// ---------------------------------------------------------------------------
+
+describe('Sleep efficiency insights', () => {
+  it('flags poor sleep performance (<55%) as warn', () => {
+    const metrics = makeMetrics(Array(5).fill({ sleep_performance_pct: 48 }));
+    const ins = generateInsights(metrics);
+    const alert = ins.find((i) => i.id === 'sleep-perf-poor');
+    expect(alert).toBeDefined();
+    expect(alert.severity).toBe('warn');
+  });
+
+  it('flags low sleep performance (55–69%) as info', () => {
+    const metrics = makeMetrics(Array(5).fill({ sleep_performance_pct: 62 }));
+    const ins = generateInsights(metrics);
+    const alert = ins.find((i) => i.id === 'sleep-perf-low');
+    expect(alert).toBeDefined();
+    expect(alert.severity).toBe('info');
+  });
+
+  it('does not flag normal sleep performance (>=70%)', () => {
+    const metrics = makeMetrics(Array(5).fill({ sleep_performance_pct: 80 }));
+    const ins = generateInsights(metrics);
+    expect(ins.find((i) => i.id?.startsWith('sleep-perf'))).toBeUndefined();
   });
 });
