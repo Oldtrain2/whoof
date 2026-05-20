@@ -59,6 +59,19 @@ function strainLabel(s) {
   return "All-out";
 }
 
+/**
+ * One-line coach recommendation for a given recovery score.
+ * Returns null when score is unavailable.
+ */
+function recoveryCoach(score) {
+  if (score == null) return null;
+  if (score >= 85) return "Peak readiness — push hard today · Target strain 16–20";
+  if (score >= 67) return "Ready for high intensity · Target strain 14–18";
+  if (score >= 50) return "Good capacity — moderate efforts · Target strain 10–13";
+  if (score >= 34) return "Reduced capacity — easier efforts · Target strain 7–11";
+  return "Rest day recommended · Keep strain below 9";
+}
+
 /* ───────────────────────────── Date navigation ─────────────────────── */
 // null = "today" (live data). YYYY-MM-DD string = historical view.
 let _browseDate = null;
@@ -490,6 +503,10 @@ async function loadRecovery() {
   const noData = data.summary == null;
   drawRecoveryRing($("recovery-ring-big"), m.recovery_score, true);
   $("recovery-state-big").textContent = noData ? "No data for this date" : recoveryLabel(m.recovery_score);
+  if ($("recovery-coach")) {
+    const coach = noData ? "" : (recoveryCoach(m.recovery_score) ?? "");
+    $("recovery-coach").textContent = coach;
+  }
 
   // Components
   const comps = [
@@ -644,6 +661,10 @@ async function loadStrain() {
   const m = data.summary || {};
   $("strain-big").textContent = m.strain_score == null ? "—" : m.strain_score.toFixed(1);
   $("strain-label").textContent = strainLabel(m.strain_score);
+  if ($("strain-target")) {
+    const coach = recoveryCoach(m.recovery_score);
+    $("strain-target").textContent = coach ? `Based on recovery: ${coach.split("·")[1]?.trim() ?? ""}` : "";
+  }
   $("strain-cals").textContent = fmtInt(m.calories);
 
   // Zones row
