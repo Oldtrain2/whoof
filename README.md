@@ -95,14 +95,20 @@ that round-trips through `shortcuts://x-callback-url`.
 - **Daily training plan** — rest / active / train / push recommendation driven
   by today's recovery score, 7-day strain load, and accumulated sleep debt.
   Includes the day-specific rationale (actual numbers) alongside the zone advice.
-- **Health insights engine** — 9 generators watching HRV trend, RHR trend,
+- **Health insights engine** — 10 generators watching HRV trend, RHR trend,
   sleep debt, sleep consistency, recovery streaks, strain/recovery balance,
-  skin temp deviation, respiratory rate drift, and sleep duration trend.
+  skin temp deviation, respiratory rate drift, sleep duration trend, and SpO₂
+  anomaly (flags avg sleep SpO₂ < 95% / < 93% as a potential sleep-apnoea
+  signal).
 - **Weekly summary** — emoji-formatted 7-day recap in the Trends tab; the
   top-3 personalised tag insights are appended automatically.
 - **Poincaré plot** — SD1/SD2 scatter from last night's RR intervals, rendered
   in the Recovery tab. Tells you at a glance whether short-term or long-term
   HRV is dominating.
+- **Recovery coach + strain target** — a one-line recommendation below the
+  recovery ring ("Ready for high intensity · Target strain 14–18") guides
+  training intensity without tab-switching. The same target also appears in
+  the Strain tab next to the cumulative score.
 - **HRV, RHR, and skin temp baselines** — Recovery Components card shows
   today's RMSSD, resting HR, and skin temperature each compared to their
   14-day rolling baseline with colour-coded deltas. The RMSSD number is the
@@ -118,6 +124,12 @@ that round-trips through `shortcuts://x-callback-url`.
 - **Journal backfill & delete** — a date picker (defaults to today) lets you
   log tags for past days you forgot to annotate; a × button on each history
   row lets you delete individual entries.
+- **Sleep trend charts** — the Sleep tab now shows a 30-day stacked bar chart
+  (Deep / REM / Light duration) and a 30-day respiratory rate line chart,
+  mirroring the HRV/RHR/skin-temp trend charts in the Recovery tab.
+- **Personal records** — the Trends tab shows all-time bests for HRV, lowest
+  RHR, peak recovery, longest sleep, peak strain, and best sleep performance,
+  each with the date it was achieved.
 
 ### Data & export
 - **IndexedDB persistence** — samples, daily_metrics, journal, captures,
