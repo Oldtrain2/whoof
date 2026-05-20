@@ -1,0 +1,29 @@
+{
+  "appId": "com.whoopfree.dashboard",
+  "appName": "whoopfree",
+  "webDir": "web",
+  "bundledWebRuntime": false,
+  "ios": {
+    "scheme": "whoopfree",
+    "backgroundColor": "#07070AFF",
+    "contentInset": "automatic",
+    "scrollEnabled": true,
+    "limitsNavigationsToAppBoundDomains": false,
+    "preferredContentMode": "mobile"
+  },
+  "server": {
+    "iosScheme": "whoopfree",
+    "androidScheme": "whoopfree",
+    "cleartext": false
+  },
+  "plugins": {
+    "BluetoothLe": {
+      "displayStrings": {
+        "scanning": "Looking for Whoop strap…",
+        "cancel": "Cancel",
+        "availableDevices": "Whoop strap found",
+        "noDeviceFound": "No Whoop strap found nearby"
+      }
+    }
+  }
+}
