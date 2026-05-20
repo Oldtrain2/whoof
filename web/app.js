@@ -650,6 +650,36 @@ async function loadSleep() {
       <div class="v">${fmtHM(s.v)}</div>
     </div>
   `).join("");
+
+  // Sleep trend charts
+  const trend = data.trend || [];
+  const tLabels = trend.map((r) => r.date.slice(5));
+  makeOrUpdate("sleep-trend", {
+    type: "bar",
+    data: {
+      labels: tLabels,
+      datasets: [
+        { label: "Deep",  data: trend.map((r) => r.deep_sleep_minutes  ?? 0), backgroundColor: COLORS.stage.deep,  stack: "s" },
+        { label: "REM",   data: trend.map((r) => r.rem_sleep_minutes   ?? 0), backgroundColor: COLORS.stage.rem,   stack: "s" },
+        { label: "Light", data: trend.map((r) => r.light_sleep_minutes ?? 0), backgroundColor: COLORS.stage.light, stack: "s" },
+      ],
+    },
+    options: commonOpts({
+      scales: {
+        x: { stacked: true, ticks: { color: COLORS.muted }, grid: { color: COLORS.border } },
+        y: { stacked: true, ticks: { color: COLORS.muted, callback: (v) => fmtHM(v) }, grid: { color: COLORS.border } },
+      },
+    }),
+  });
+  makeOrUpdate("sleep-rr-trend", {
+    type: "line",
+    data: { labels: tLabels, datasets: [{
+      label: "RR (breaths/min)", data: trend.map((r) => r.respiratory_rate),
+      borderColor: COLORS.recMid, backgroundColor: COLORS.recMid + "22",
+      tension: 0.3, pointRadius: 2, borderWidth: 1.5, fill: true,
+    }] },
+    options: commonOpts(),
+  });
 }
 
 /* ───────────────────────────── Strain tab ──────────────────────────── */

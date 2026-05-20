@@ -156,10 +156,22 @@ async function apiOverview() {
 async function apiSleep(dayIso) {
   const d = await db();
   const day = dayIso || todayIso();
-  const [m, stages] = await Promise.all([
+  const [m, stages, all] = await Promise.all([
     getDailyMetric(d, day),
     sleepStagesForDate(d, day),
+    recentDailyMetrics(d, 30),
   ]);
+  const trend = all
+    .filter((row) => row.date <= day)
+    .reverse()
+    .map((r) => ({
+      date: r.date,
+      sleep_minutes:       r.sleep_minutes ?? null,
+      deep_sleep_minutes:  r.deep_sleep_minutes ?? null,
+      rem_sleep_minutes:   r.rem_sleep_minutes ?? null,
+      light_sleep_minutes: r.light_sleep_minutes ?? null,
+      respiratory_rate:    r.respiratory_rate ?? null,
+    }));
   return {
     date: day,
     summary: m ?? null,
@@ -168,6 +180,7 @@ async function apiSleep(dayIso) {
       end: toLocalIso(s.end_utc),
       stage: s.stage,
     })),
+    trend,
   };
 }
 
