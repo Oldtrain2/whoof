@@ -1,0 +1,20 @@
+# Cloudflare Pages configuration for whoopfree
+#
+# Deploys the static `/web` directory to Cloudflare's CDN at the URL
+# https://whoopfree.pages.dev (or your chosen project name).
+#
+# Usage:
+#   npx wrangler login            # one-time
+#   npm run deploy                # uploads /web, prints a public URL
+#
+# Free tier limits (plenty for personal use):
+#   - 500 builds / month
+#   - Unlimited bandwidth + requests
+#   - Custom domain support if you want one later
+
+name = "whoopfree"
+compatibility_date = "2026-05-21"
+pages_build_output_dir = "./web"
+
+[observability]
+enabled = true

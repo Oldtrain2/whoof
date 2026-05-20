@@ -572,6 +572,100 @@ function wireAlarm() {
 }
 wireAlarm();
 
+// ----- Wake alarm card (Overview) -----------------------------------------
+//
+// Surfaces the strap's built-in alarm + RTC sync on the dashboard so the user
+// can pick a wake time (default 7:00) and confirm the strap clock is mapped
+// correctly to the device clock. Uses the same BLE commands as the sidebar
+// alarm panel — this is just a more prominent UI.
+
+function wireWakeAlarm() {
+  const timeInput = $('wake-alarm-time');
+  const whenEl    = $('wake-alarm-when');
+  const setBtn    = $('wake-alarm-set');
+  const offBtn    = $('wake-alarm-off');
+  const testBtn   = $('wake-alarm-test');
+  const statusEl  = $('wake-alarm-status');
+  const driftEl   = $('wake-clock-drift');
+  const syncBtn   = $('wake-clock-sync');
+  if (!timeInput || !setBtn) return;
+
+  function setStatus(msg, color = 'var(--muted)') {
+    if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color; }
+  }
+  function nextFireDate() {
+    const value = timeInput.value || '07:00';
+    const [h, m] = value.split(':').map(Number);
+    const target = new Date();
+    target.setHours(h, m, 0, 0);
+    if (target <= new Date()) target.setDate(target.getDate() + 1);
+    return target;
+  }
+  function renderWhen() {
+    if (!whenEl) return;
+    const t = nextFireDate();
+    const today = new Date();
+    const sameDay = t.toDateString() === today.toDateString();
+    whenEl.textContent = sameDay ? 'Later today' : 'Tomorrow';
+  }
+  timeInput.addEventListener('input', renderWhen);
+  renderWhen();
+
+  setBtn.addEventListener('click', async () => {
+    if (!client?.connected) return setStatus('Not connected — connect your strap first.', '#f55');
+    const target = nextFireDate();
+    try {
+      await client.setAlarm(Math.floor(target.getTime() / 1000));
+      setStatus(`Armed for ${target.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`, 'var(--rec-good)');
+    } catch (err) { setStatus(err.message ?? String(err), '#f55'); }
+  });
+  offBtn?.addEventListener('click', async () => {
+    if (!client?.connected) return setStatus('Not connected', '#f55');
+    try { await client.disableAlarm(); setStatus('Alarm disabled.'); }
+    catch (err) { setStatus(err.message ?? String(err), '#f55'); }
+  });
+  testBtn?.addEventListener('click', async () => {
+    if (!client?.connected) return setStatus('Not connected', '#f55');
+    try { await client.runHaptics(0); setStatus('Buzz sent — feel the strap vibrate.', 'var(--rec-good)'); }
+    catch (err) { setStatus(err.message ?? String(err), '#f55'); }
+  });
+
+  async function refreshClockDrift() {
+    if (!driftEl) return;
+    if (!client?.connected) { driftEl.textContent = '—'; driftEl.style.color = 'var(--muted)'; return; }
+    driftEl.textContent = 'checking…';
+    try {
+      const strapUnix = await client.getClock();
+      if (!strapUnix) { driftEl.textContent = 'no response'; driftEl.style.color = '#f55'; return; }
+      const drift = strapUnix - Math.floor(Date.now() / 1000);
+      const abs = Math.abs(drift);
+      const inSync = abs <= 2;
+      driftEl.textContent = inSync ? `in sync · ${new Date(strapUnix * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : `off by ${drift > 0 ? '+' : ''}${drift}s`;
+      driftEl.style.color = inSync ? 'var(--rec-good)' : (abs > 10 ? '#f55' : '#fa3');
+    } catch (err) {
+      driftEl.textContent = 'check failed';
+      driftEl.style.color = '#f55';
+    }
+  }
+  syncBtn?.addEventListener('click', async () => {
+    if (!client?.connected) return setStatus('Not connected', '#f55');
+    try {
+      await client.setClock();
+      setStatus('Strap clock resynced to this device.', 'var(--rec-good)');
+      await refreshClockDrift();
+    } catch (err) { setStatus(err.message ?? String(err), '#f55'); }
+  });
+
+  client?.on?.('state', (s) => {
+    if (s === 'connected') {
+      setStatus('Pick a time and tap "Set alarm".');
+      refreshClockDrift();
+    }
+  });
+  client?.on?.('clock', () => refreshClockDrift());
+}
+wireWakeAlarm();
+
 // ----- Saved captures list -------------------------------------------------
 
 async function refreshCapturesList() {

@@ -15,6 +15,17 @@ Built on top of open research from [`jogolden/whoomp`][whoomp] and
 
 ---
 
+## Pick your install path
+
+| Where you'll use it | Best path | Cost | Setup time |
+|---|---|---|---|
+| **iPhone — phone-only, never want a Mac in the loop** | **[docs/IPHONE_BLUEFY.md](docs/IPHONE_BLUEFY.md)** — Bluefy browser + Cloudflare Pages. Pair the strap directly from iPhone | Free forever, no developer account | ~20 min |
+| **iPhone — happy to keep a Mac around as the hub** | [docs/IPHONE.md](docs/IPHONE.md) — install the PWA from Safari, pair on Mac, JSON export/import | Free, no developer account | 5 min |
+| **iPhone — want a polished native-app feel and have Xcode** | [docs/IPHONE_NATIVE.md](docs/IPHONE_NATIVE.md) — Capacitor wrap, free Apple-ID signing | Free but re-sign in Xcode every 7 days | 15 min |
+| **Mac Chrome, day-to-day dev** | Read on below | Free | 30 sec |
+
+---
+
 ## Quick start (Mac Chrome)
 
 ```bash

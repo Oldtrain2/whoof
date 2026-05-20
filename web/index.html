@@ -303,6 +303,26 @@
         </div>
       </div>
 
+      <div class="card span-2" id="wake-alarm-card">
+        <span class="card-eyebrow">⏰ Wake alarm</span>
+        <div style="display:flex; align-items:baseline; gap:10px; margin-top:6px;">
+          <input id="wake-alarm-time" type="time" value="07:00"
+                 style="background:var(--card); color:var(--fg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:28px; font-weight:700; font-family:var(--font-display); font-variant-numeric:tabular-nums; letter-spacing:-0.5px; width:auto;"/>
+          <span id="wake-alarm-when" style="font-size:11px; color:var(--muted);">Tomorrow morning</span>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
+          <button id="wake-alarm-set" class="primary" style="flex:1; min-width:90px;">Set alarm</button>
+          <button id="wake-alarm-off" style="font-size:11px;">Disable</button>
+          <button id="wake-alarm-test" style="font-size:11px;" title="Buzz the strap now to test">Test buzz</button>
+        </div>
+        <div id="wake-alarm-status" style="font-size:11px; color:var(--muted); margin-top:8px; min-height:1.2em;">Connect your strap to arm an alarm.</div>
+        <div style="border-top:1px solid var(--border); margin-top:10px; padding-top:8px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Strap clock</div>
+          <div id="wake-clock-drift" style="font-size:11px; font-variant-numeric:tabular-nums; color:var(--muted);">—</div>
+          <button id="wake-clock-sync" style="font-size:10px;" title="Resync the strap's RTC to this device's clock">Resync</button>
+        </div>
+      </div>
+
       <div class="card card-plan span-2" id="plan-card">
         <span class="card-eyebrow">Today's plan</span>
         <div class="plan-illust" id="plan-zone">🛌</div>
