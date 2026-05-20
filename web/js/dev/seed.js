@@ -45,6 +45,10 @@ function randInt(rand, lo, hi) {
 function* generateDaySamples({
   date, dayStartLocal, dayEndLocal, sessionId, rand, gauss,
   workoutToday,
+  // Lifestyle modifiers: affect nighttime physiology so tag correlations
+  // in demo data are causally meaningful, not purely random.
+  alcoholTonight = false,   // → elevated HR, suppressed HRV during sleep
+  goodsleepTonight = false, // → lower HR, elevated HRV during sleep
 }) {
   // Daytime: 10s sample interval. Sleep periods: 2s interval (5× denser) so
   // RR-interval samples capture the ~4s respiratory cycle (Nyquist requires
@@ -58,8 +62,12 @@ function* generateDaySamples({
 
   const bedtimeHour      = 22 + gauss(0, 0.6);
   const wakeHour         = 6.5 + gauss(0, 0.4);
-  const sleepBaselineHr  = 52 + gauss(0, 3);
-  const rrJitter         = Math.max(8, gauss(28, 6));
+  // Alcohol → elevated resting HR (+6 bpm) + suppressed HRV (×0.55)
+  // Goodsleep → slightly lower resting HR (−3 bpm) + boosted HRV (×1.35)
+  const hrMod   = alcoholTonight ? +6 : goodsleepTonight ? -3 : 0;
+  const hrvMod  = alcoholTonight ? 0.55 : goodsleepTonight ? 1.35 : 1.0;
+  const sleepBaselineHr  = 52 + hrMod + gauss(0, 3);
+  const rrJitter         = Math.max(8, gauss(28, 6) * hrvMod);
   const workoutStart     = 17 + gauss(0, 0.5);
   const workoutDurMin    = 35 + randInt(rand, 0, 25);
   const workoutPeakHr    = 155 + randInt(rand, -10, 10);
@@ -204,6 +212,8 @@ export async function seedDemoData({
     const samples = Array.from(generateDaySamples({
       date: dateIso, dayStartLocal, dayEndLocal, sessionId,
       rand, gauss, workoutToday: offset % 2 === 0,
+      alcoholTonight: offset % 3 === 0,
+      goodsleepTonight: offset % 5 === 0 && offset % 3 !== 0, // don't combine with alcohol
     }));
 
     // Chunk to avoid one huge transaction.
@@ -219,6 +229,9 @@ export async function seedDemoData({
   // Pattern: every 3rd day → alcohol (expect lower next-day recovery),
   //          workout days (offset%2=0) → hardworkout,
   //          every 5th day → goodsleep.
+  // NOTE: the sample generator above is already told about these flags so
+  // the underlying physiological data actually reflects the lifestyle tag —
+  // the correlation panel shows causal patterns rather than random noise.
   for (let offset = days; offset >= 1; offset--) {
     const d = new Date(today);
     d.setDate(today.getDate() - offset);

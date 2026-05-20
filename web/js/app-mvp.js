@@ -1308,6 +1308,76 @@ window.addEventListener('hashchange', () => {
 window.addEventListener('whoop-data-changed', () => renderWeeklySummary());
 window.addEventListener('whoop-data-changed', () => renderTagCorrelations());
 
+// ----- Recovery calendar heatmap -------------------------------------------
+// 30-day grid: each cell = one day, coloured by recovery score.
+// Gray = no data. Cells are square divs arranged newest-right.
+
+function recoveryColor(score) {
+  if (score == null) return 'var(--bg-3)';
+  if (score >= 67)   return 'var(--rec-good)';   // green
+  if (score >= 34)   return 'var(--rec-warn)';   // yellow
+  return 'var(--rec-bad)';                        // red
+}
+
+async function renderRecoveryCal() {
+  const el = document.getElementById('recovery-cal');
+  if (!el) return;
+  try {
+    if (!db) db = await openDb();
+    const metrics = await recentDailyMetrics(db, 30);
+    // Build a map date→score for fast lookup.
+    const byDate = {};
+    for (const m of metrics) byDate[m.date] = m.recovery_score ?? null;
+
+    // Generate 30 calendar cells from oldest to newest.
+    const cells = [];
+    const today = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const score = byDate[iso] ?? null;
+      const label = score != null ? `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}: ${Math.round(score)}%` : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const isToday = i === 0;
+      cells.push(`<div title="${label}" style="
+        width:28px; height:28px; border-radius:5px; flex-shrink:0;
+        background:${recoveryColor(score)};
+        opacity:${score == null ? 0.35 : 1};
+        box-sizing:border-box;
+        border: ${isToday ? '2px solid var(--fg)' : '2px solid transparent'};
+      "></div>`);
+    }
+
+    // Day-of-week labels (Mon…Sun aligned to first row).
+    const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    const labelRow = dayLabels.map((l) =>
+      `<div style="width:28px; text-align:center; font-size:9px; color:var(--muted);">${l}</div>`
+    ).join('');
+
+    // Legend.
+    const legend = `
+      <div style="display:flex; gap:6px; align-items:center; margin-top:8px; font-size:10px; color:var(--muted);">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--rec-good);"></span>Green (67–100)
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--rec-warn);"></span>Yellow (34–66)
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--rec-bad);"></span>Red (0–33)
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--bg-3);opacity:.35;border:1px solid var(--border);"></span>No data
+      </div>`;
+
+    el.innerHTML = `
+      <div style="display:flex; gap:4px; flex-wrap:wrap; max-width:100%;">
+        ${cells.join('')}
+      </div>
+      ${legend}`;
+  } catch (err) {
+    console.warn('[recovery-cal] render failed', err);
+  }
+}
+
+window.addEventListener('hashchange', () => {
+  if (location.hash === '#trends') renderRecoveryCal();
+});
+window.addEventListener('whoop-data-changed', () => renderRecoveryCal());
+
 // ----- URL ?tab= routing for PWA manifest shortcuts -----------------------
 // Manifest shortcuts use ?tab=<name>; app.js reads #hash. Bridge both so
 // installed-PWA deep links work the same as in-browser navigation.
