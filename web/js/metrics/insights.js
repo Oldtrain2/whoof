@@ -247,6 +247,44 @@ function sleepDurationTrend(chrono) {
 }
 
 /**
+ * Training load monotony — Bannister's measure of day-to-day strain uniformity.
+ * monotony = mean(strain) / std(strain)
+ * A high ratio means similar effort every day; variability (hard/easy/rest) is healthier.
+ * Threshold: > 2.0 = elevated risk over a 7-day window.
+ */
+function trainingMonotony(chrono) {
+  const vals = chrono.slice(-7).map((m) => m.strain_score).filter((v) => v != null);
+  if (vals.length < 5) return null;
+  const avg = mean(vals);
+  if (!avg || avg < 4) return null; // ignore low-strain windows
+  const variance = vals.reduce((s, v) => s + (v - avg) ** 2, 0) / (vals.length - 1);
+  const sd = Math.sqrt(variance);
+  // sd ≈ 0 means perfectly uniform — treat as maximum monotony and always flag.
+  if (sd < 0.5) {
+    return {
+      id: 'training-monotony-high',
+      severity: 'info',
+      title: `Training monotony (very high)`,
+      body: `7-day strain is nearly identical every day (avg ${avg.toFixed(1)}, σ ≈ 0). Alternating hard/easy/rest days reduces injury risk and drives better adaptation.`,
+      metric: 'strain_score',
+      trend: null,
+    };
+  }
+  const monotony = avg / sd;
+  if (monotony > 2.5) {
+    return {
+      id: 'training-monotony-high',
+      severity: 'info',
+      title: `Training monotony ${monotony.toFixed(1)}×`,
+      body: `7-day strain is very uniform (avg ${avg.toFixed(1)}, σ ${sd.toFixed(1)}). Alternating hard/easy/rest days reduces injury risk and drives better adaptation than constant moderate effort.`,
+      metric: 'strain_score',
+      trend: null,
+    };
+  }
+  return null;
+}
+
+/**
  * Acute:Chronic Workload Ratio (ACWR) — compares 7-day avg strain against
  * the prior baseline period. 0.8–1.3 is the "sweet spot"; outside that range
  * signals overreaching (>1.3) or detraining (<0.8).
@@ -379,6 +417,7 @@ export function generateInsights(metrics, { days = 14 } = {}) {
     respiratoryRateAlert(slice),
     spo2Alert(slice),
     sleepEfficiency(slice),
+    trainingMonotony(chrono),
     acwr(slice),
   ];
 
