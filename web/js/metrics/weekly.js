@@ -62,6 +62,16 @@ export function weeklySummary(metrics) {
   const avgRhr      = mean(rhrs);
   const totalCalories = cals.length ? cals.reduce((a, b) => a + b, 0) : null;
 
+  // Cumulative HR zone minutes across the week.
+  const zoneSum = [0, 0, 0, 0, 0];
+  let hasZoneData = false;
+  for (const m of slice) {
+    if (Array.isArray(m.zone_minutes)) {
+      for (let i = 0; i < 5; i++) zoneSum[i] += m.zone_minutes[i] || 0;
+      hasZoneData = true;
+    }
+  }
+
   // Workout count: days where strain > 10.
   const workoutCount = strains.filter((s) => s > 10).length;
 
@@ -99,9 +109,17 @@ export function weeklySummary(metrics) {
   if (avgStrain  != null) lines.push(`⚡ Avg daily strain: ${avgStrain.toFixed(1)}  (${workoutCount} workout days)`);
   if (totalCalories != null) lines.push(`🔥 Total calories: ${Math.round(totalCalories).toLocaleString()} kcal`);
 
+  if (hasZoneData && zoneSum.some((v) => v > 0)) {
+    const zoneLine = zoneSum
+      .map((mins, i) => mins > 0 ? `Z${i + 1} ${fmtH(mins)}` : null)
+      .filter(Boolean)
+      .join(' · ');
+    if (zoneLine) lines.push(`🏃 Week zones: ${zoneLine}`);
+  }
+
   return {
     days, avgRecovery, avgStrain, avgSleepH, avgRmssd, avgRhr, totalCalories,
     workoutCount, bestRecovery, worstRecovery, highestStrain,
-    greenDays, redDays, summary: lines.join('\n'),
+    greenDays, redDays, zoneSum, hasZoneData, summary: lines.join('\n'),
   };
 }
