@@ -1014,6 +1014,182 @@ table td { color: var(--text-2); }
 }
 .modal-card h2 { margin-bottom: 12px; }
 
+/* ───────────────────────────────────────────────── */
+/* Settings drawer (right slide-out)                  */
+/* ───────────────────────────────────────────────── */
+
+.backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(4px);
+  z-index: 90;
+  display: none;
+}
+.backdrop.open { display: block; }
+
+.drawer {
+  position: fixed;
+  top: 0; right: 0;
+  width: 420px;
+  max-width: 92vw;
+  height: 100vh;
+  background: linear-gradient(180deg, var(--surface-1) 0%, #0A0A0E 100%);
+  border-left: 1px solid var(--border);
+  padding: 28px 32px;
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 240ms ease;
+  box-shadow: -16px 0 48px rgba(0,0,0,0.5);
+}
+.drawer.open { display: flex; transform: translateX(0); }
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+.drawer-head h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+}
+.close-btn {
+  appearance: none;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 36px; height: 36px;
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.close-btn:hover { color: var(--text); border-color: var(--border-hi); }
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.settings-form input, .settings-form select {
+  appearance: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 12px;
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.settings-form input:focus, .settings-form select:focus {
+  outline: none;
+  border-color: var(--strain);
+  box-shadow: 0 0 0 3px rgba(3,181,243,0.18);
+}
+.settings-form .primary {
+  appearance: none;
+  background: var(--text);
+  color: var(--bg);
+  border: none;
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: opacity 120ms;
+}
+.settings-form .primary:hover { opacity: 0.85; }
+.settings-form .hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-weight: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.drawer hr {
+  border: none;
+  border-top: 1px solid var(--hairline);
+  margin: 0;
+}
+.drawer .actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.drawer .actions button {
+  appearance: none;
+  background: var(--surface-3);
+  border: 1px solid var(--border-hi);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font: 600 12px var(--font);
+  cursor: pointer;
+}
+.drawer .actions button:hover { background: var(--surface-glow); }
+.drawer .actions .hint { font-size: 11px; color: var(--text-muted); }
+
+/* Live tab — Device events log + Session stats */
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+}
+.row:last-child { border-bottom: none; }
+.row .k { color: var(--text-muted); font-weight: 500; }
+.row .v { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.ev {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.ev:last-child { border-bottom: none; }
+.ev .kind {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--surface-3);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 /* Misc */
 .muted { color: var(--text-muted); }
 .big-num { font-family: var(--font-display); }
