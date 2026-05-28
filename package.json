@@ -6,8 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "wrangler pages deploy web --project-name=whoof --branch=main",
-    "deploy:preview": "wrangler pages deploy web --project-name=whoof",
+    "deploy": "wrangler pages deploy web --project-name=getwhoof --branch=main",
+    "deploy:preview": "wrangler pages deploy web --project-name=getwhoof",
     "cap:sync": "cap sync ios",
     "cap:open": "cap open ios"
   },
