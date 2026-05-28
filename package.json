@@ -7,21 +7,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "deploy": "wrangler pages deploy web --project-name=whoof --branch=main",
-    "deploy:preview": "wrangler pages deploy web --project-name=whoof",
-    "cap:sync": "cap sync ios",
-    "cap:open": "cap open ios"
+    "deploy:preview": "wrangler pages deploy web --project-name=whoof"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.0.0",
     "jsdom": "^25.0.1",
     "vitest": "^2.1.4",
     "wrangler": "^4.93.0"
-  },
-  "dependencies": {
-    "@capacitor-community/bluetooth-le": "^8.1.3",
-    "@capacitor/app": "^8.1.0",
-    "@capacitor/cli": "^8.3.4",
-    "@capacitor/core": "^8.3.4",
-    "@capacitor/ios": "^8.3.4"
   }
 }
