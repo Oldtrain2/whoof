@@ -1,7 +1,8 @@
 # Cloudflare Pages configuration for whoof
 #
-# Deploys the static `/web` directory to Cloudflare's CDN at the URL
-# https://whoof.pages.dev (or your chosen project name).
+# Deploys the static `/web` directory to Cloudflare's CDN at
+# https://getwhoof.pages.dev. (`whoof.pages.dev` was already taken on
+# Cloudflare, so the public URL is `getwhoof.pages.dev`.)
 #
 # Usage:
 #   npx wrangler login            # one-time
@@ -12,7 +13,7 @@
 #   - Unlimited bandwidth + requests
 #   - Custom domain support if you want one later
 
-name = "whoof"
+name = "getwhoof"
 compatibility_date = "2026-05-21"
 pages_build_output_dir = "./web"
 

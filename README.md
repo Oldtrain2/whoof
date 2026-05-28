@@ -25,6 +25,10 @@ Built on top of open research from [`jogolden/whoomp`][whoomp] and
 > BLE without a subscription gate at the wire layer. This project lets you
 > read that telemetry from a strap you own — nothing more.
 
+**🌐 Try it now:** <https://getwhoof.pages.dev> — the dashboard, served from
+Cloudflare's CDN. No install, no signup; pair your own strap over BLE
+(needs a Chromium-family browser on Mac/Linux, or Bluefy on iPhone).
+
 ---
 
 ## Pick your install path

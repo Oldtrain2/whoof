@@ -60,7 +60,7 @@ After 10–20 seconds it prints:
 
 ```
 ✨  Deployment complete! Take a peek over at
-    https://whoof.pages.dev
+    https://getwhoof.pages.dev
 ```
 
 That's your permanent URL. Bookmark it.
@@ -68,7 +68,7 @@ That's your permanent URL. Bookmark it.
 ### 3. Open in Bluefy on iPhone (30 seconds)
 
 1. Open **Bluefy** on iPhone
-2. Tap the address bar, type your URL: `whoof.pages.dev` (or
+2. Tap the address bar, type your URL: `getwhoof.pages.dev` (or
    whichever name Cloudflare gave you)
 3. The full dashboard loads
 
@@ -113,7 +113,7 @@ SW switch in commit `a08658d` made HTML/JS/CSS network-first).
 
 ## Troubleshooting
 
-**"Bluefy can't connect to whoof.pages.dev"**
+**"Bluefy can't connect to getwhoof.pages.dev"**
 → Cloudflare's free tier sometimes takes 30–60 seconds to propagate the
 first deploy. Wait a minute and refresh.
 
@@ -147,7 +147,7 @@ even on the free tier. You'll need to own the domain.
 iPhone (no Mac involved after step 2)
 └── Bluefy app (free, App Store)
     └── WKWebView + custom Web Bluetooth implementation
-        └── https://whoof.pages.dev  ← Cloudflare Pages CDN
+        └── https://getwhoof.pages.dev  ← Cloudflare Pages CDN
             └── /web (your dashboard)
                 └── navigator.bluetooth.requestDevice(...)
                     └── Bluefy's BLE bridge

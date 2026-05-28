@@ -6,8 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "wrangler pages deploy web --project-name=whoof --branch=main",
-    "deploy:preview": "wrangler pages deploy web --project-name=whoof"
+    "deploy": "wrangler pages deploy web --project-name=getwhoof --branch=main",
+    "deploy:preview": "wrangler pages deploy web --project-name=getwhoof"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.0.0",
