@@ -184,12 +184,24 @@ export async function importAllFromJson(payload, db = null) {
     throw new Error(`Unsupported export version: ${payload.version} (expected ${EXPORT_VERSION})`);
   }
   const d = db ?? (await openDb());
+  // Overwrite all syncable stores inside ONE readwrite transaction so an
+  // interrupted import rolls back completely instead of leaving some stores
+  // cleared-but-not-refilled. 'captures' (raw BLE frames) is excluded so a
+  // restore never destroys local capture history absent from the export.
+  const stores = Object.keys(STORES).filter((s) => s !== 'captures');
   let totalRows = 0;
-  for (const store of Object.keys(STORES)) {
-    const rows = Array.isArray(payload[store]) ? payload[store] : [];
-    await clearStore(d, store);
-    await putAll(d, store, rows);
-    totalRows += rows.length;
-  }
+  await new Promise((resolve, reject) => {
+    const tx = d.transaction(stores, 'readwrite');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('import transaction aborted'));
+    for (const store of stores) {
+      const os = tx.objectStore(store);
+      os.clear();
+      const rows = Array.isArray(payload[store]) ? payload[store] : [];
+      for (const row of rows) os.put(row);
+      totalRows += rows.length;
+    }
+  });
   return { totalRows };
 }

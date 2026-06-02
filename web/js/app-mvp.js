@@ -12,6 +12,10 @@ import {
   startHealthPolling, readShortcutResult, triggerWeightShortcut, buildIngestUrl,
 } from './health/sync.js';
 import { readScaleIntoProfile, setWeightManually } from './health/scale.js';
+import {
+  readHealthFromHash, parseAppleHealthExport, applyHealthToProfile, latestValues,
+  PROFILE_KEYS,
+} from './health/apple.js';
 import { getProfile } from './data/queries.js';
 import {
   startCapture, stopCapture, downloadCapture, isCapturing, captureStats,
@@ -1116,16 +1120,34 @@ async function refreshWeightDisplay() {
   }
 }
 
-// Pick up a value handed back by an Apple Shortcut (URL query param).
+// Pick up values handed back by Apple. Two phone-only paths, both client-side:
+//   1. A Shortcut writes #health=<base64url JSON> into the URL fragment.
+//   2. The legacy WhoopPullWeight shortcut appends ?weight_from_shortcut=<qty>.
 (async () => {
-  const w = await readShortcutResult();
+  if (!db) db = await openDb();
+  try {
+    const res = await readHealthFromHash({ location: window.location, history: window.history, db });
+    if (res && res.accepted?.length) {
+      // Only PROFILE_KEYS are persisted; report just those so the toast doesn't
+      // claim we saved metrics (steps, etc.) that applyHealthToProfile dropped.
+      const saved = res.accepted.filter((k) => PROFILE_KEYS.includes(k));
+      if (saved.length) {
+        setDataStatus(`Synced from Apple Health: ${saved.join(', ')}`, 'var(--rec-good)');
+      }
+    }
+  } catch (err) {
+    console.warn('[health] hash import failed', err);
+  }
+  const w = await readShortcutResult(db);
   if (w != null) {
     setDataStatus(`Pulled weight from iPhone: ${w.toFixed(1)} kg`, 'var(--rec-good)');
   }
   await refreshWeightDisplay();
 })();
 
-// Start background poller — picks up Health Auto Export values from the Mac.
+// Background poller for the optional Python LAN server (Health Auto Export).
+// It self-terminates on the first probe when no such endpoint exists, so on a
+// static Cloudflare Pages deploy this is a no-op after one call.
 startHealthPolling(async () => {
   await refreshWeightDisplay();
 });
@@ -1177,6 +1199,42 @@ if (healthSetupBtn) healthSetupBtn.addEventListener('click', () => {
 
 if (healthCloseBtn) healthCloseBtn.addEventListener('click', () => {
   if (healthModal) healthModal.style.display = 'none';
+});
+
+// Import a full Apple Health export.xml (Health app → profile → Export All
+// Health Data → unzip → export.xml). Parsed with a streaming regex (not
+// DOMParser) so a large file doesn't blow up the DOM; the latest value per
+// recognised metric is folded into the profile. No server involved.
+const healthImportInput = $('mvp-health-import');
+const healthImportBtn = $('mvp-health-import-btn');
+if (healthImportBtn && healthImportInput) {
+  healthImportBtn.addEventListener('click', () => healthImportInput.click());
+}
+if (healthImportInput) healthImportInput.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  setDataStatus(`Reading ${file.name}…`);
+  try {
+    const text = await file.text();
+    const series = parseAppleHealthExport(text);
+    const { values } = latestValues(series);
+    const keys = Object.keys(values);
+    if (!keys.length) {
+      setDataStatus('No recognised Health metrics in that file.', '#f55');
+    } else {
+      if (!db) db = await openDb();
+      const merged = await applyHealthToProfile(values, db);
+      const saved = keys.filter((k) => PROFILE_KEYS.includes(k));
+      setDataStatus(
+        merged ? `Imported from Apple Health: ${saved.join(', ')}` : 'Health values already up to date',
+        merged ? 'var(--rec-good)' : undefined,
+      );
+      await refreshWeightDisplay();
+    }
+  } catch (err) {
+    setDataStatus('Import failed: ' + (err.message ?? err), '#f55');
+  }
+  e.target.value = '';
 });
 
 // ----- Poincaré plot (HRV scatter) ----------------------------------------

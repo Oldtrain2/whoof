@@ -44,6 +44,7 @@
   --rec-bad:      var(--bad);
   --fg:           var(--text);
   --fg-2:         var(--text-2);
+  --fg2:          var(--text-2);
   --muted:        var(--text-muted);
   --card-bg:      var(--surface-1);
   --card-bg2:     var(--surface-2);
@@ -1158,15 +1159,23 @@ table td { color: var(--text-2); }
   border-left: 1px solid var(--border);
   padding: 28px 32px;
   z-index: 100;
-  display: none;
+  display: flex;
   flex-direction: column;
   gap: 18px;
   overflow-y: auto;
   transform: translateX(100%);
-  transition: transform 240ms ease;
+  visibility: hidden;
+  /* Keep the drawer in the layout (display:flex) and slide it with transform so
+     the transition actually plays; delay visibility:hidden until the slide-out
+     finishes so it isn't interactive while open. */
+  transition: transform 240ms ease, visibility 0s linear 240ms;
   box-shadow: -16px 0 48px rgba(0,0,0,0.5);
 }
-.drawer.open { display: flex; transform: translateX(0); }
+.drawer.open {
+  transform: translateX(0);
+  visibility: visible;
+  transition: transform 240ms ease;
+}
 
 .drawer-head {
   display: flex;

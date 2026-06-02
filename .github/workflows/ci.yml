@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web · vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+
+  # The Python package is the legacy/reference backend and depends on the
+  # vendored `whoop-reader` driver (vendor/ is gitignored, so it isn't present
+  # on a clean CI checkout). The browser PWA — exercised by the `web` job above
+  # — is the production code path. A Python job is intentionally omitted until
+  # whoop-reader is published or vendored into the repo.

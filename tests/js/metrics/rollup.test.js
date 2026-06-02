@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openDb } from '../../../web/js/data/db.js';
 import { insertSamplesBatch, getDailyMetric, putProfile } from '../../../web/js/data/queries.js';
 import { rollupDay, rollupMissing } from '../../../web/js/metrics/rollup.js';
@@ -78,6 +78,28 @@ describe('rollupDay', () => {
     expect(dm.strain_score).toBeLessThanOrEqual(21);
   });
 
+  it('populates WHOOP-parity metrics (vo2max, fitness age, whoop age, sleep architecture)', async () => {
+    await putProfile(db, { age: 30, sex: 'M', weight_kg: 75 });
+    await insertSamplesBatch(db, syntheticDay('2026-05-20'));
+    const dm = await rollupDay(db, '2026-05-20');
+
+    // VO2max is derivable from resting HR whenever HR samples exist.
+    expect(dm.vo2max).toBeGreaterThan(20);
+    expect(dm.vo2max).toBeLessThanOrEqual(80);
+    expect(typeof dm.vo2max_category).toBe('string');
+    expect(dm.fitness_age).toBeGreaterThan(0);
+
+    // WHOOP age needs >=2 signals; vo2max + resting + rmssd are all present.
+    expect(dm.whoop_age).not.toBeNull();
+    expect(dm.whoop_age).toBeGreaterThanOrEqual(18);
+    expect(['low', 'medium', 'high']).toContain(dm.whoop_age_confidence);
+
+    // New fields are always present (null when sleep/HRR can't be derived).
+    expect(dm).toHaveProperty('sleep_efficiency_pct');
+    expect(dm).toHaveProperty('waso_min');
+    expect(dm).toHaveProperty('hrr60');
+  });
+
   it('persists the metric so getDailyMetric returns it', async () => {
     await insertSamplesBatch(db, syntheticDay('2026-05-20'));
     await rollupDay(db, '2026-05-20');
@@ -113,7 +135,18 @@ describe('rollupDay', () => {
 });
 
 describe('rollupMissing', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('only computes for dates that have samples and no existing metric', async () => {
+    // Pin "today" so the seeded sample date stays inside rollupMissing's
+    // `days`-wide lookback window. Without this the test rots — it silently
+    // broke once the real clock drifted more than `days` past 2026-05-19.
+    // Only Date is faked so fake-indexeddb's real timers/microtasks still run.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 4, 20, 12, 0, 0)); // 2026-05-20, local
+
     // Seed only one day
     await insertSamplesBatch(db, syntheticDay('2026-05-19'));
     const computed = await rollupMissing(db, 7);

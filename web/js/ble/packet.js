@@ -202,7 +202,11 @@ export class WhoopPacket {
     if (data[0] !== SOF) throw new Error(`Invalid SOF: 0x${data[0].toString(16)}`);
 
     const length = data[1] | (data[2] << 8);   // little-endian
-    if (length < 8 || length > data.length) {
+    // The 4 CRC-32 bytes sit at data[length .. length+3], so the wire frame
+    // must be at least length+4 bytes. Checking only `length > data.length`
+    // let an exact-length (CRC-truncated) frame through, reading the CRC as
+    // undefined→0 and silently failing every such packet.
+    if (length < 8 || data.length < length + 4) {
       throw new Error(`Invalid packet length field: ${length} (raw ${data.length})`);
     }
     const lenBuf = new Uint8Array([data[1], data[2]]);

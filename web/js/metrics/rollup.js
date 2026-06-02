@@ -26,6 +26,10 @@ import {
 } from './zones.js';
 import { detectWorkouts } from './workouts.js';
 import { recoveryBreakdown, RECOVERY_BASELINE_DAYS } from './recovery.js';
+import { vo2maxReport } from './vo2max.js';
+import { sleepArchitecture } from './sleepdetail.js';
+import { physiologicalAge } from './whoopage.js';
+import { heartRateRecovery } from './hrr.js';
 
 const DEFAULT_AGE = 30;
 
@@ -183,10 +187,24 @@ export async function rollupDay(db, dateIso, { ageOverride = null } = {}) {
   const caloriesTotal = round(caloriesFromHrSeries(hrs, age, weightKg, sex) * medianDt, 1);
 
   // ---- Strain + workouts ---------------------------------------------------
-  const todayStrain = strainScore(hrs, age, resting);
+  const todayStrain = strainScore(hrs, age, resting, medianDt);
   const detected = detectWorkouts(rows, {
     age, maxHrOverride, sleepWindow, weightKg, sex,
   });
+  // Annotate each workout with heart-rate recovery (autonomic fitness) from its
+  // post-workout cool-down, and keep the day's headline HRR from the hardest
+  // effort (highest peak HR) for the daily card.
+  let dayHrr = null;
+  for (const w of detected) {
+    const hrr = heartRateRecovery(rows, w.end_utc, { peakHr: w.max_hr });
+    if (!hrr) continue;
+    w.hrr60 = hrr.hrr60;
+    w.hrr120 = hrr.hrr120;
+    w.hrr_category = hrr.category;
+    if (!dayHrr || (w.max_hr ?? 0) > dayHrr.peak) {
+      dayHrr = { hrr60: hrr.hrr60, category: hrr.category, peak: w.max_hr ?? 0 };
+    }
+  }
   await replaceWorkoutsForDate(db, dateIso, detected);
   await replaceSleepStagesForDate(db, dateIso, stages);
 
@@ -227,6 +245,32 @@ export async function rollupDay(db, dateIso, { ageOverride = null } = {}) {
   const bedLocal  = fmtLocalIsoMinutes(bedDate);
   const wakeLocal = fmtLocalIsoMinutes(wakeDate);
 
+  // ---- WHOOP-parity derived metrics ----------------------------------------
+  // VO2max (Uth–Sorensen from resting HR) → ACSM category + fitness age.
+  const vo2 = vo2maxReport({ restingHr: resting, age, sex: sex || 'M', maxHrOverride });
+  // Detailed sleep architecture (latency, efficiency, WASO, cycles). Pass the
+  // window as Date objects — sleepArchitecture reads .getTime() directly.
+  const sleepWindowDates = sleepWindow
+    ? [new Date(sleepWindow[0]), new Date(sleepWindow[1])]
+    : null;
+  const arch = sleepArchitecture(stages, sleepWindowDates);
+  // Physiological ("WHOOP") age from VO2max + RHR + HRV + rolling sleep/recovery.
+  // Pass null (not 0) for absent sleep so it's dropped, not penalised.
+  const recoveryHist = history.map((h) => h.recovery_score).filter((v) => v != null);
+  const avgRecovery = recoveryHist.length ? mean(recoveryHist) : (breakdown.total ?? null);
+  const sleepSamples = [asleepMinutes, ...recent7.map((m) => m.sleep_minutes)]
+    .filter((v) => v != null && v > 0);
+  const avgSleepMin = sleepSamples.length ? mean(sleepSamples) : null;
+  const physio = physiologicalAge({
+    chronoAge: age,
+    sex: sex || 'M',
+    vo2max: vo2.vo2max,
+    restingHr: resting,
+    rmssd: todayRmssd,
+    avgSleepMinutes: avgSleepMin,
+    avgRecovery,
+  });
+
   const dm = {
     date: dateIso,
     avg_hr: round(mean(hrs), 1),
@@ -260,6 +304,21 @@ export async function rollupDay(db, dateIso, { ageOverride = null } = {}) {
     recovery_sleep_component:  breakdown.sleep,
     recovery_strain_component: breakdown.strain,
     stress_avg: stressAvg,
+    // ---- WHOOP-parity metrics ----
+    vo2max:               vo2.vo2max,
+    vo2max_category:      vo2.vo2max != null ? vo2.category : null,
+    fitness_age:          vo2.fitnessAge,
+    whoop_age:            physio ? physio.physioAge : null,
+    whoop_age_delta:      physio ? physio.deltaYears : null,
+    whoop_age_confidence: physio ? physio.confidence : null,
+    sleep_latency_min:    arch ? arch.sleepLatencyMin : null,
+    sleep_efficiency_pct: arch ? arch.sleepEfficiencyPct : null,
+    waso_min:             arch ? arch.wasoMin : null,
+    sleep_cycle_count:    arch ? arch.cycleCount : null,
+    sleep_disturbances:   arch ? arch.disturbances : null,
+    restorative_pct:      arch ? arch.restorativePct : null,
+    hrr60:                dayHrr ? dayHrr.hrr60 : null,
+    hrr_category:         dayHrr ? dayHrr.category : null,
     bedtime_local: bedLocal,
     wake_local:    wakeLocal,
   };

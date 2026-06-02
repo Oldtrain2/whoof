@@ -16,13 +16,30 @@ const MIN_BEATS_FOR_HRV = 5;
  * @returns {number[]} filtered RR intervals.
  */
 export function filterRr(rrMs) {
-  const arr = Array.from(rrMs ?? []);
+  const arr = Array.from(rrMs ?? []).filter(
+    (r) => typeof r === 'number' && Number.isFinite(r),
+  );
   if (arr.length === 0) return [];
-  const out = [arr[0]];
-  for (let i = 1; i < arr.length; i++) {
-    const r = arr[i];
-    const prev = out[out.length - 1];
-    if (Math.abs(r - prev) / Math.max(prev, 1) <= 0.2) {
+
+  // Physiological plausibility gate (250-2000 ms ≈ 30-240 bpm). Beats outside
+  // this band are hardware artifacts, not heartbeats.
+  const PLAUSIBLE_MIN = 250;
+  const PLAUSIBLE_MAX = 2000;
+  const plausible = arr.filter((r) => r >= PLAUSIBLE_MIN && r <= PLAUSIBLE_MAX);
+  if (plausible.length === 0) return [];
+
+  // Seed the Malik comparison with the median rather than the first beat. A
+  // single implausible-but-in-band first interval (common right after a BLE
+  // reconnect) would otherwise become the anchor and reject every subsequent
+  // normal beat, collapsing the series to one element and nulling HRV.
+  const sorted = [...plausible].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+
+  const out = [];
+  for (const r of arr) {
+    if (r < PLAUSIBLE_MIN || r > PLAUSIBLE_MAX) continue;
+    const ref = out.length ? out[out.length - 1] : median;
+    if (Math.abs(r - ref) / Math.max(ref, 1) <= 0.2) {
       out.push(r);
     }
   }

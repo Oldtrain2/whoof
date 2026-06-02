@@ -65,6 +65,16 @@ describe('WhoopPacket framing', () => {
   it('rejects too-short frames', () => {
     expect(() => WhoopPacket.fromData(new Uint8Array([0xaa, 0, 0]))).toThrow();
   });
+
+  it('rejects frames whose CRC-32 bytes are truncated (off-by-4 guard)', () => {
+    const full = buildFrame(PacketType.COMMAND, 0, CommandNumber.TOGGLE_REALTIME_HR, new Uint8Array([0x01]));
+    // length+3 bytes: the 4th CRC byte runs off the end. Must reject, not read
+    // undefined→0 and then spuriously fail the CRC-32 comparison on valid data.
+    expect(() => WhoopPacket.fromData(full.slice(0, full.length - 1))).toThrow(/length/);
+    // Exactly `length` bytes: the whole CRC-32 is missing.
+    const length = full[1] | (full[2] << 8);
+    expect(() => WhoopPacket.fromData(full.slice(0, length))).toThrow(/length/);
+  });
 });
 
 describe('buildCommandFrame helper', () => {

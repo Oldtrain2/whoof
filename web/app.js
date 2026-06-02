@@ -112,8 +112,8 @@ function renderDateNav(elId, iso) {
 async function fetchJSON(url, opts) {
   // Try the in-browser IndexedDB shim first (v0.3). If it returns null,
   // the path isn't routed — fall back to network fetch for compatibility.
-  if (window.whoopApi) {
-    const shimResult = await window.whoopApi.handle(url, opts);
+  if (window.whoofApi) {
+    const shimResult = await window.whoofApi.handle(url, opts);
     if (shimResult !== null) return shimResult;
   }
   const r = await fetch(url, opts);
@@ -766,6 +766,50 @@ async function loadRecovery() {
       <div class="val">${c.v == null ? "—" : Math.round(c.v)}</div>
     </div>
   `).join("");
+
+  // ---- Fitness & longevity (VO2max, fitness age, WHOOP age) ----------------
+  const setText = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  setText("rec-vo2max", m.vo2max != null ? m.vo2max.toFixed(1) : "—");
+  setText("rec-vo2max-cat", m.vo2max_category ?? "—");
+  setText("rec-fitness-age", m.fitness_age != null ? Math.round(m.fitness_age) : "—");
+  setText("rec-whoop-age", m.whoop_age != null ? Math.round(m.whoop_age) : "—");
+  if ($("rec-whoop-age-sub")) {
+    if (m.whoop_age != null && m.whoop_age_delta != null) {
+      const d = m.whoop_age_delta;
+      const col = d < 0 ? COLORS.recGood : d > 0 ? COLORS.recBad : COLORS.muted;
+      $("rec-whoop-age-sub").innerHTML =
+        `WHOOP age · <span style="color:${col}">${d < 0 ? "−" : "+"}${Math.abs(d).toFixed(1)}y vs actual</span>`;
+    } else {
+      $("rec-whoop-age-sub").textContent = "WHOOP age";
+    }
+  }
+
+  // ---- Health Monitor — today's vitals vs personal baseline ----------------
+  const hm = data.health_monitor;
+  if ($("rec-health-monitor")) {
+    if (hm && hm.vitals && hm.vitals.length) {
+      const dotColor = (s) =>
+        s === "normal" ? COLORS.recGood
+        : (s === "elevated" || s === "low") ? COLORS.recBad
+        : COLORS.muted;
+      $("rec-health-monitor").innerHTML = hm.vitals.map((v) => `
+        <div style="display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--hairline);">
+          <span style="width:8px; height:8px; border-radius:50%; background:${dotColor(v.status)}; flex-shrink:0;"></span>
+          <span style="flex:1; font-size:12px;">${v.label}</span>
+          <span style="font-variant-numeric:tabular-nums; font-size:12px; color:var(--fg);">${v.value == null ? "—" : v.value + " " + v.unit}</span>
+          <span style="font-size:10px; color:var(--muted); width:72px; text-align:right;">${v.status === "unavailable" ? "" : v.status}</span>
+        </div>
+      `).join("");
+      if ($("rec-health-overall")) {
+        const oc = hm.overall === "green" ? COLORS.recGood : hm.overall === "yellow" ? COLORS.recMid : COLORS.recBad;
+        $("rec-health-overall").innerHTML = `<span style="color:${oc}">●</span>`;
+      }
+    } else {
+      $("rec-health-monitor").innerHTML =
+        `<div style="font-size:11px; color:var(--muted);">Wear your strap a few more days to build a baseline.</div>`;
+      if ($("rec-health-overall")) $("rec-health-overall").innerHTML = "";
+    }
+  }
 
   // Trend charts
   const trend = data.trend || [];

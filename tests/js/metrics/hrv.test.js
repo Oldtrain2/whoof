@@ -39,6 +39,22 @@ describe('filterRr', () => {
     expect(out.includes(1300)).toBe(false);
     expect(out.length).toBe(5);
   });
+
+  it('recovers from an implausible first-beat anchor (BLE reconnect artifact)', () => {
+    // A 2000 ms first interval used to anchor the Malik check and reject every
+    // subsequent normal beat, collapsing HRV to null. Median anchoring fixes it.
+    const rr = [2000, 1000, 1010, 990, 1005, 995, 1002];
+    const out = filterRr(rr);
+    expect(out.includes(2000)).toBe(false);
+    expect(out.length).toBeGreaterThanOrEqual(5);
+    expect(rmssd(rr)).not.toBeNull();
+  });
+
+  it('discards out-of-band intervals entirely', () => {
+    const out = filterRr([100, 1000, 1005, 995, 1002, 9000]);
+    expect(out.includes(100)).toBe(false);
+    expect(out.includes(9000)).toBe(false);
+  });
 });
 
 describe('rmssd', () => {

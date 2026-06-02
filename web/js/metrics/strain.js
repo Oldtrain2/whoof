@@ -6,22 +6,31 @@
  * proprietary algorithm.
  */
 
+// Knee of the exponential strain curve, in intensity-minutes. See strainScore.
+const STRAIN_DIVISOR = 32.0;
+
 /**
  * Whoop-like 0-21 daily strain score.
  *
  * Methodology:
- *   load   = sum( max(0, (hr - rest) / (max - rest)) ^ 2 ) * minutes_per_sample
- *   strain = 21 * (1 - exp(-load / 100))
+ *   load   = sum( max(0, (hr - rest) / (max - rest)) ^ 2 ) * dt_seconds / 60
+ *   strain = 21 * (1 - exp(-load / 32))
  *
  * The squared term emphasises higher intensities, matching the
  * qualitative behaviour of Whoop's published scale.
  *
+ * STRAIN_DIVISOR sets the curve's knee. With load in intensity-minutes, 32
+ * spreads a real day across the 0-21 range instead of saturating at 21 for
+ * any sustained effort.
+ *
  * @param {ReadonlyArray<number|null|undefined>} hrBpm  Heart-rate samples (bpm).
  * @param {number} [age=30]                              Age in years (for max HR estimate).
  * @param {number|null} [restingHr=null]                 Optional resting HR; defaults to min of samples.
+ * @param {number} [sampleIntervalSec=1.0]               Seconds between samples; scales load so the
+ *                                                        score is invariant to the stream's sample rate.
  * @returns {number}                                     Strain score in [0, 21].
  */
-export function strainScore(hrBpm, age = 30, restingHr = null) {
+export function strainScore(hrBpm, age = 30, restingHr = null, sampleIntervalSec = 1.0) {
   if (!hrBpm || hrBpm.length === 0) {
     return 0.0;
   }
@@ -39,15 +48,18 @@ export function strainScore(hrBpm, age = 30, restingHr = null) {
   if (maxHr <= rest) {
     return 0.0;
   }
-  // Each real-time packet is ~1 second; convert to minutes for load.
-  const minutes = samples.length / 60.0;
   let sumSq = 0.0;
   for (const h of samples) {
     const intensity = Math.max(0.0, (h - rest) / (maxHr - rest));
     sumSq += intensity * intensity;
   }
-  const load = sumSq * ((minutes / Math.max(samples.length, 1)) * 60);
-  return Math.round(21.0 * (1.0 - Math.exp(-load / 100.0)) * 100) / 100;
+  // Intensity-minutes: the per-sample intensity² sum scaled by the real
+  // sample interval, so a coarse historical dump and a 1 Hz live stream of
+  // the same effort yield the same load. divisor STRAIN_DIVISOR is tuned so a
+  // sedentary day lands ~6-9 and an all-out day approaches 21.
+  const dt = Number.isFinite(sampleIntervalSec) && sampleIntervalSec > 0 ? sampleIntervalSec : 1.0;
+  const load = (sumSq * dt) / 60.0;
+  return Math.round(21.0 * (1.0 - Math.exp(-load / STRAIN_DIVISOR)) * 100) / 100;
 }
 
 /**

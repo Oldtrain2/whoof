@@ -112,6 +112,16 @@ describe('readShortcutResult', () => {
     expect(out).toBeNull();
   });
 
+  it('converts pounds to kg when weight_unit=lb', async () => {
+    history.replaceState({}, '', '/?weight_from_shortcut=154.32&weight_unit=lb');
+    const out = await readShortcutResult(db);
+    expect(out).toBeCloseTo(70, 0);
+    const p = await getProfile(db);
+    expect(p.weight_kg).toBeCloseTo(70, 0);
+    // both params are stripped from the URL afterwards
+    expect(new URL(window.location.href).searchParams.get('weight_unit')).toBeNull();
+  });
+
   it('returns null when no shortcut param is present', async () => {
     history.replaceState({}, '', '/');
     const out = await readShortcutResult(db);

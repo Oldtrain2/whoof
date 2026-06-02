@@ -49,7 +49,7 @@ class AsyncQueue {
   async pop(timeoutMs) {
     if (this._items.length) return this._items.shift();
     return new Promise((resolve, reject) => {
-      const entry = [resolve];
+      const entry = [resolve, reject];
       this._waiters.push(entry);
       if (timeoutMs) {
         setTimeout(() => {
@@ -60,6 +60,18 @@ class AsyncQueue {
     });
   }
   clear() { this._items.length = 0; }
+
+  // Reject every pending pop() waiter so a coroutine blocked on the queue
+  // (e.g. the historical-dump loop) unwinds immediately instead of waiting out
+  // its 30s timeout. Used on disconnect.
+  drain(err) {
+    this._items.length = 0;
+    const waiters = this._waiters.splice(0);
+    for (const w of waiters) {
+      const reject = w[1];
+      if (reject) reject(err);
+    }
+  }
 }
 
 export class WhoopClient {
@@ -78,6 +90,7 @@ export class WhoopClient {
     this._batteryPollInterval = null;
     this._metaQueue = new AsyncQueue();
     this._historicalDumpInFlight = false;
+    this._disconnectHandler = null;
     this._state = 'disconnected';
 
     // Cached strap state surfaced to the UI:
@@ -102,15 +115,27 @@ export class WhoopClient {
       filters: [{ services: [SERVICE_UUID] }, { namePrefix: 'WHOOP' }],
       optionalServices: [SERVICE_UUID],
     });
-    this.device.addEventListener('gattserverdisconnected', () => this._onDisconnected());
+    this._attachDisconnectHandler();
     await this._connect();
   }
 
   async connectToDevice(device) {
     this._intentionalDisconnect = false;
     this.device = device;
-    this.device.addEventListener('gattserverdisconnected', () => this._onDisconnected());
+    this._attachDisconnectHandler();
     await this._connect();
+  }
+
+  // Attach the gattserverdisconnected handler exactly once per device, removing
+  // any previous one first, so repeated connect calls on the same (possibly
+  // bridge-cached) device object don't stack handlers and fire N parallel
+  // reconnect chains + battery pollers.
+  _attachDisconnectHandler() {
+    if (this._disconnectHandler) {
+      this.device.removeEventListener('gattserverdisconnected', this._disconnectHandler);
+    }
+    this._disconnectHandler = () => this._onDisconnected();
+    this.device.addEventListener('gattserverdisconnected', this._disconnectHandler);
   }
 
   async _connect() {
@@ -190,11 +215,19 @@ export class WhoopClient {
       clearInterval(this._batteryPollInterval);
       this._batteryPollInterval = null;
     }
-    // Drain any pending metadata waiter so a dump-in-flight rejects promptly.
-    this._metaQueue.clear();
+    // On a disconnect mid-dump, emit historyError once and reject the dump
+    // coroutine's queue waiter so it unwinds immediately instead of stalling on
+    // the 30s queue timeout. The _fromDisconnect flag tells downloadHistory not
+    // to emit a second historyError as it unwinds; resetting the in-flight flag
+    // lets a reconnect start a fresh dump.
     if (this._historicalDumpInFlight) {
-      this._emit('historyError', new Error('disconnected during dump'));
+      const err = new Error('disconnected during dump');
+      err._fromDisconnect = true;
       this._historicalDumpInFlight = false;
+      this._emit('historyError', err);
+      this._metaQueue.drain(err);
+    } else {
+      this._metaQueue.clear();
     }
     if (this._intentionalDisconnect) return;
     this._setState('reconnecting');
@@ -473,8 +506,15 @@ export class WhoopClient {
 
     let samplesReceived = 0;
     const onSample = this.on('historicalSample', () => { samplesReceived++; });
+    let highFreq = false;
 
     try {
+      // Clear any half-finished transmit left by a prior aborted dump, then
+      // switch the strap into high-frequency sync for a faster bulk drain.
+      // Both are best-effort — a strap that rejects them still dumps fine.
+      try { await this.abortHistoricalTransmits(); } catch {}
+      try { await this.enterHighFreqSync(); highFreq = true; } catch {}
+
       await this._sendCommand(CommandNumber.SEND_HISTORICAL_DATA, new Uint8Array([0x00]));
 
       while (true) {
@@ -501,10 +541,15 @@ export class WhoopClient {
         this._emit('historyProgress', { samples: samplesReceived, trim: meta.trim });
       }
     } catch (err) {
-      this._emit('historyError', err);
+      // _onDisconnected already emitted historyError for a disconnect-driven
+      // abort; don't double-emit. Other failures (timeout, write error) emit here.
+      if (!err?._fromDisconnect) this._emit('historyError', err);
       throw err;
     } finally {
+      // Unsubscribe the sample counter first so a stray late notification during
+      // the exit-sync round-trip can't touch it.
       onSample();
+      if (highFreq) { try { await this.exitHighFreqSync(); } catch {} }
       this._historicalDumpInFlight = false;
     }
   }

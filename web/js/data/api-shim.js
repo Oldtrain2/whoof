@@ -1,7 +1,7 @@
 // In-browser shim that mimics the Python /api/* endpoints from
 // whoof/dashboard.py, but reads from IndexedDB instead of SQLite.
 //
-// Registers `window.whoopApi.handle(url, opts?)` → Promise<JSON>.
+// Registers `window.whoofApi.handle(url, opts?)` → Promise<JSON>.
 // The legacy `fetchJSON` in app.js delegates to this when present so every
 // existing render function works unchanged.
 
@@ -17,12 +17,16 @@ import { rollupDay, recomputeRecent, rollupMissing } from '../metrics/rollup.js'
 import { maxHr } from '../metrics/zones.js';
 import { sleepQualityScore } from '../metrics/sleep.js';
 import { acwr as computeAcwr } from '../metrics/strain.js';
+import { healthMonitor } from '../metrics/healthmonitor.js';
 
 const VALID_TREND_METRICS = new Set([
   'rmssd_ms', 'resting_hr', 'recovery_score', 'strain_score',
   'sleep_minutes', 'sleep_performance_pct', 'sleep_debt_minutes',
   'avg_hr', 'avg_spo2', 'skin_temp_deviation_c', 'respiratory_rate',
   'calories', 'stress_avg',
+  // WHOOP-parity metrics
+  'vo2max', 'fitness_age', 'whoop_age', 'hrr60',
+  'sleep_efficiency_pct', 'sleep_latency_min', 'waso_min', 'restorative_pct',
 ]);
 
 let _db = null;
@@ -36,6 +40,12 @@ function todayIso() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Returns the UTC instants bounding a *local* calendar day. The name says UTC
+// because the return values are UTC ISO strings, but the day is the user's
+// local day on purpose — rollup.js uses the identical local-midnight bounds,
+// so the samples this serves line up exactly with the daily_metrics it
+// computed. Do NOT switch to Date.UTC(): that would shift the window by the
+// timezone offset and desync the API from the rollup.
 function dayBoundsUtc(dateIso) {
   const [y, m, d] = dateIso.split('-').map(Number);
   const start = new Date(y, m - 1, d, 0, 0, 0, 0);
@@ -210,8 +220,11 @@ async function apiRecovery(dayIso) {
   const d = await db();
   const day = dayIso || todayIso();
   const m = await getDailyMetric(d, day);
-  if (!m) return { date: day, summary: null, trend: [] };
-  const all = await recentDailyMetrics(d, 30);
+  if (!m) return { date: day, summary: null, trend: [], health_monitor: null };
+  const [all, profile] = await Promise.all([
+    recentDailyMetrics(d, 30),
+    getProfile(d),
+  ]);
   const trend = all
     .filter((row) => row.date <= day)
     .reverse()
@@ -226,7 +239,13 @@ async function apiRecovery(dayIso) {
       recovery_strain_component: r.recovery_strain_component ?? null,
       skin_temp_deviation_c: r.skin_temp_deviation_c ?? null,
     }));
-  return { date: day, summary: m, trend };
+  // WHOOP-style Health Monitor: today's vitals vs the user's rolling baseline.
+  const baseline = all.filter((row) => row.date < day);
+  const monitor = healthMonitor(m, baseline, {
+    sex: profile?.sex ?? 'M',
+    age: profile?.age ?? 30,
+  });
+  return { date: day, summary: m, trend, health_monitor: monitor };
 }
 
 async function apiStrain(dayIso) {
@@ -457,4 +476,4 @@ async function handle(url, opts = {}) {
   return null; // signal "not handled" — caller falls through to fetch()
 }
 
-window.whoopApi = { handle };
+window.whoofApi = { handle };

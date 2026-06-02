@@ -151,9 +151,6 @@ export function parseEvent(cmd, data) {
     case EventNumber.HIGH_FREQ_SYNC_PROMPT:
       evt.semantic = 'syncPrompt';
       break;
-    case EventNumber.DOUBLE_TAP:
-      evt.semantic = 'doubleTap';
-      break;
     case EventNumber.ERROR:
       evt.semantic = 'error';
       break;

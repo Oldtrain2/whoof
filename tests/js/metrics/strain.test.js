@@ -26,6 +26,27 @@ describe('strainScore', () => {
     expect(score).toBeGreaterThanOrEqual(0.0);
     expect(score).toBeLessThanOrEqual(21.0);
   });
+
+  it('differentiates effort duration: 60 min scores higher than 30 min', () => {
+    // Same moderate intensity (~120 bpm, rest 60, max 190), different duration.
+    const thirty = new Array(30 * 60).fill(120.0);
+    const sixty = new Array(60 * 60).fill(120.0);
+    const s30 = strainScore(thirty, 30, 60.0);
+    const s60 = strainScore(sixty, 30, 60.0);
+    expect(s60).toBeGreaterThan(s30);
+    // Neither should peg at the ceiling — the old formula collapsed both to 21.
+    expect(s30).toBeGreaterThan(0.5);
+    expect(s60).toBeLessThan(21.0);
+  });
+
+  it('is invariant to sample rate when the interval is supplied', () => {
+    // 30 min of identical effort sampled at 1 Hz vs every 5 s must agree.
+    const oneHz = new Array(30 * 60).fill(130.0);
+    const fiveS = new Array((30 * 60) / 5).fill(130.0);
+    const a = strainScore(oneHz, 30, 60.0, 1.0);
+    const b = strainScore(fiveS, 30, 60.0, 5.0);
+    expect(a).toBeCloseTo(b, 1);
+  });
 });
 
 describe('acwr', () => {

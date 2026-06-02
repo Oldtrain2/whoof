@@ -61,11 +61,33 @@ export async function applySnapshotToProfile(db = null) {
  * Returns a stop() function.
  */
 export function startHealthPolling(onUpdate = () => {}) {
+  // The Python LAN snapshot server is only reachable from the local dashboard
+  // itself (http://localhost or an http LAN IP). On an https static deploy
+  // (Cloudflare Pages) it's both same-origin-absent and mixed-content-blocked,
+  // so don't poll at all — this avoids endless 404s/console spam on the site.
+  if (typeof location !== 'undefined' && location.protocol === 'https:') {
+    const h = location.hostname;
+    const isLan = h === 'localhost' || h === '127.0.0.1' ||
+      /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+    if (!isLan) return () => {};
+  }
+
   let timer = null;
+  let misses = 0;
+  const MAX_MISSES = 3; // ride out transient failures before giving up
   const tick = async () => {
     try {
       const updated = await applySnapshotToProfile();
-      if (updated) onUpdate(updated);
+      if (updated == null) {
+        // No snapshot this tick. After a few misses assume there's no Python
+        // server and stop, but tolerate transient network blips first. Not
+        // clearing on the first miss also dodges a timer-still-null race when
+        // the first tick resolves before setInterval below has assigned it.
+        if (++misses >= MAX_MISSES && timer) { clearInterval(timer); timer = null; }
+        return;
+      }
+      misses = 0;
+      onUpdate(updated);
     } catch (err) {
       console.warn('[health] poll failed', err);
     }
@@ -83,8 +105,17 @@ export async function readShortcutResult(db = null) {
   const url = new URL(window.location.href);
   const raw = url.searchParams.get(SHORTCUT_RESULT_PARAM);
   if (!raw) return null;
-  const weight = parseFloat(raw);
-  if (!Number.isFinite(weight) || weight <= 0 || weight > 500) return null;
+  let weight = parseFloat(raw);
+  if (!Number.isFinite(weight)) return null;
+
+  // Apple's Body Mass sample is locale-dependent, so the Shortcut can pass an
+  // optional ?weight_unit=lb. Convert pounds to kg before range-validating.
+  const unit = (url.searchParams.get('weight_unit') || '').toLowerCase();
+  if (unit === 'lb' || unit === 'lbs' || unit === 'pound' || unit === 'pounds') {
+    weight *= 0.45359237;
+  }
+  if (weight <= 0 || weight > 500) return null;
+  weight = Math.round(weight * 100) / 100;
 
   const d = db ?? (await openDb());
   const existing = (await getProfile(d)) ?? {};
@@ -92,6 +123,7 @@ export async function readShortcutResult(db = null) {
 
   // Clean the URL so a refresh doesn't re-apply.
   url.searchParams.delete(SHORTCUT_RESULT_PARAM);
+  url.searchParams.delete('weight_unit');
   history.replaceState({}, '', url.toString());
 
   return weight;
@@ -110,9 +142,13 @@ export function triggerWeightShortcut() {
   if (typeof window === 'undefined' || !window.location) {
     return 'Shortcuts only available on iPhone';
   }
+  // Hand the Shortcut a clean current-page URL as x-success. The Shortcut's
+  // own final step appends ?weight_from_shortcut=<qty>&weight_unit=<unit> to it,
+  // so we must NOT pre-set a placeholder here (the old __VALUE__ never got
+  // substituted and broke the callback).
   const successUrl = new URL(window.location.href);
-  successUrl.searchParams.set(SHORTCUT_RESULT_PARAM, '__VALUE__');
-  // x-callback-url replaces __VALUE__ via the shortcut output.
+  successUrl.searchParams.delete(SHORTCUT_RESULT_PARAM);
+  successUrl.searchParams.delete('weight_unit');
   const shortcutUrl = `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(SHORTCUT_NAME)}&x-success=${encodeURIComponent(successUrl.toString())}`;
   window.location.href = shortcutUrl;
   return null;
@@ -126,8 +162,14 @@ export function triggerWeightShortcut() {
 export function buildIngestUrl() {
   if (typeof window === 'undefined') return '';
   const host = window.location.hostname || 'YOUR_MAC_IP';
-  const port = window.location.port || '8765';
-  // We replace localhost with a hint because HAE on iPhone cannot reach Mac's localhost.
-  const displayHost = (host === 'localhost' || host === '127.0.0.1') ? 'YOUR_MAC_IP' : host;
-  return `http://${displayHost}:${port}/api/health/ingest`;
+  // Only a private-LAN host can actually run the Python ingest server. From
+  // localhost (the Mac itself) or a public deploy (Cloudflare Pages), the
+  // iPhone can't reach the current host, so show a copy-paste placeholder for
+  // the Mac's LAN IP. The port is always the dashboard's 8765, not this page's.
+  const isLanIp =
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+  const displayHost = isLanIp ? host : 'YOUR_MAC_IP';
+  return `http://${displayHost}:8765/api/health/ingest`;
 }

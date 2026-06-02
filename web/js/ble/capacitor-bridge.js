@@ -164,11 +164,16 @@ export async function installCapacitorBleBridge() {
       connected: false,
       device,
       async connect() {
-        await Ble.connect({ deviceId }, (event) => {
-          // disconnect callback
+        const onDisconnected = () => {
           server.connected = false;
           device.dispatchEvent(new Event('gattserverdisconnected'));
-        });
+        };
+        // @capacitor-community/bluetooth-le v3 reads the disconnect callback
+        // from the `onDisconnected` option; v2 took it as the 2nd positional
+        // arg. Pass both so a drop always propagates and reconnect/backoff
+        // fires — under v3 the old 2-arg form was silently ignored, freezing
+        // the app on BLE loss.
+        await Ble.connect({ deviceId, onDisconnected }, onDisconnected);
         server.connected = true;
         return server;
       },
