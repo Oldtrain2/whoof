@@ -663,21 +663,20 @@ extension GooseAppModel {
     let deviceModel: String
   }
 
-  static func captureFrameRows(for request: CaptureFrameRowBuildRequest) -> [[String: Any]] {
+  static func captureFrameRows(for request: CaptureFrameRowBuildRequest) -> [CapturedFrameWriteRow] {
     request.frames.enumerated().map { index, frame in
       let evidenceID = Self.captureEvidenceID(for: frame, event: request.event, index: index)
-      let captureSessionValue: Any = request.captureSessionID ?? NSNull()
-      return [
-        "evidence_id": evidenceID,
-        "frame_id": "\(evidenceID).frame.0",
-        "source": "ios.corebluetooth.notification",
-        "captured_at": request.capturedAt,
-        "device_model": request.deviceModel,
-        "frame_hex": frame.hex,
-        "sensitivity": "user-owned-capture",
-        "capture_session_id": captureSessionValue,
-        "device_type": request.event.rustDeviceType,
-      ] as [String: Any]
+      return CapturedFrameWriteRow(
+        evidenceID: evidenceID,
+        frameID: "\(evidenceID).frame.0",
+        source: "ios.corebluetooth.notification",
+        capturedAt: request.capturedAt,
+        deviceModel: request.deviceModel,
+        frameHex: frame.hex,
+        sensitivity: "user-owned-capture",
+        captureSessionID: request.captureSessionID,
+        deviceType: request.event.rustDeviceType
+      )
     }
   }
 

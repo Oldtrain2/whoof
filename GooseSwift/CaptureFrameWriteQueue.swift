@@ -48,6 +48,32 @@ struct CaptureFrameWriteResult {
   let importTimingSummary: String?
 }
 
+struct CapturedFrameWriteRow {
+  let evidenceID: String
+  let frameID: String
+  let source: String
+  let capturedAt: String
+  let deviceModel: String
+  let frameHex: String
+  let sensitivity: String
+  let captureSessionID: String?
+  let deviceType: String
+
+  var bridgeObject: [String: Any] {
+    [
+      "evidence_id": evidenceID,
+      "frame_id": frameID,
+      "source": source,
+      "captured_at": capturedAt,
+      "device_model": deviceModel,
+      "frame_hex": frameHex,
+      "sensitivity": sensitivity,
+      "capture_session_id": captureSessionID ?? NSNull(),
+      "device_type": deviceType,
+    ]
+  }
+}
+
 final class CaptureFrameEnqueueAggregator {
   var onSnapshot: ((CaptureFrameEnqueueSnapshot) -> Void)?
 
@@ -160,7 +186,7 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
   private let maxBatchRows: Int
   private let coalesceDelay: TimeInterval = 0.05
   private let completionCoalesceDelay: TimeInterval = 1
-  private var pendingRows: [[String: Any]] = []
+  private var pendingRows: [CapturedFrameWriteRow] = []
   private var latestCompletion: (@MainActor (CaptureFrameWriteResult) -> Void)?
   private var pendingCompletionResult: CaptureFrameWriteResult?
   private var pendingCompletion: (@MainActor (CaptureFrameWriteResult) -> Void)?
@@ -175,7 +201,7 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
   }
 
   func enqueue(
-    rows: [[String: Any]],
+    rows: [CapturedFrameWriteRow],
     completion: @escaping @MainActor (CaptureFrameWriteResult) -> Void
   ) -> CaptureFrameWriteEnqueueResult {
     guard !rows.isEmpty else {
@@ -227,7 +253,7 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
 
   private func flushNext() {
     while true {
-      let rows: [[String: Any]]
+      let rows: [CapturedFrameWriteRow]
       let completion: (@MainActor (CaptureFrameWriteResult) -> Void)?
       stateLock.lock()
       if pendingRows.isEmpty {
@@ -254,7 +280,7 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
             "include_timeline_rows": false,
             "compact_raw_payloads": false,
             "include_results": false,
-            "frames": rows,
+            "frames": rows.map(\.bridgeObject),
           ]
         )
         result = CaptureFrameWriteResult(
