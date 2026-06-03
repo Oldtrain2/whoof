@@ -123,7 +123,7 @@ async function fetchJSON(url, opts) {
 
 /* ───────────────────────────── Tab routing ─────────────────────────── */
 
-const TABS = ["overview", "recovery", "sleep", "strain", "trends", "live"];
+const TABS = ["overview", "recovery", "sleep", "strain", "trends", "live", "coach"];
 let activeTab = "overview";
 
 function setTab(name) {
@@ -145,6 +145,17 @@ function setTab(name) {
 function initTabs() {
   document.querySelectorAll(".tab, .mtab").forEach((b) =>
     b.addEventListener("click", () => setTab(b.dataset.tab)));
+  const coachForm = $("coach-form");
+  if (coachForm) {
+    coachForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const input = $("coach-input");
+      if (!input) return;
+      const text = input.value;
+      input.value = "";
+      sendCoachMessage(text);
+    });
+  }
   const initial = (location.hash || "#overview").slice(1);
   setTab(initial);
 }
@@ -157,6 +168,79 @@ async function loadActiveTab() {
     case "strain":   return loadStrain();
     case "trends":   return loadTrends();
     case "live":     return loadLive();
+    case "coach":    return loadCoach();
+  }
+}
+
+/* ───────────────────────────── Coach (AI) ──────────────────────────── */
+
+let _coachMetrics = null;     // today's metric snapshot, fetched lazily
+let _coachHistory = [];       // [{role, content}] prior turns for context
+let _coachGreeted = false;
+let _coachBusy = false;
+
+function coachBubble(role, text) {
+  const log = $("coach-log");
+  if (!log) return null;
+  const wrap = document.createElement("div");
+  const isUser = role === "user";
+  wrap.style.cssText = `max-width:82%; padding:10px 14px; border-radius:14px; font-size:14px; line-height:1.5; white-space:pre-wrap; ` +
+    (isUser
+      ? "align-self:flex-end; background:#03B5F3; color:#04121b; border-bottom-right-radius:4px;"
+      : "align-self:flex-start; background:rgba(255,255,255,.06); color:var(--text); border-bottom-left-radius:4px;");
+  wrap.textContent = text;
+  log.appendChild(wrap);
+  log.scrollTop = log.scrollHeight;
+  return wrap;
+}
+
+async function loadCoach() {
+  // Pull today's full metric row once (recovery summary is the whole dm).
+  if (!_coachMetrics) {
+    try {
+      const data = await fetchJSON(`/api/recovery?date=${todayIso()}`);
+      _coachMetrics = data.summary || {};
+    } catch { _coachMetrics = {}; }
+  }
+  if (!_coachGreeted) {
+    _coachGreeted = true;
+    const r = _coachMetrics.recovery_score;
+    const hello = r != null
+      ? `Hey — your recovery is ${Math.round(r)}% today. Ask me anything about your recovery, strain, sleep, or stress.`
+      : `Hey — connect your strap to compute today's metrics, then ask me about your recovery, strain, sleep, or stress.`;
+    coachBubble("assistant", hello);
+  }
+}
+
+async function sendCoachMessage(text) {
+  if (_coachBusy) return;
+  const msg = text.trim();
+  if (!msg) return;
+  _coachBusy = true;
+  const send = $("coach-send");
+  if (send) send.disabled = true;
+  coachBubble("user", msg);
+  _coachHistory.push({ role: "user", content: msg });
+  const thinking = coachBubble("assistant", "…");
+  try {
+    const res = await fetch("/api/coach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: msg, metrics: _coachMetrics || {}, history: _coachHistory.slice(0, -1) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const reply = res.ok && data.reply
+      ? data.reply
+      : (res.status === 503
+        ? "Coach isn't enabled on this deployment yet (Workers AI binding missing)."
+        : `Sorry — I couldn't answer that (${data.message || res.status}).`);
+    if (thinking) thinking.textContent = reply;
+    if (res.ok && data.reply) _coachHistory.push({ role: "assistant", content: data.reply });
+  } catch (e) {
+    if (thinking) thinking.textContent = "Network error reaching the coach.";
+  } finally {
+    _coachBusy = false;
+    if (send) send.disabled = false;
   }
 }
 

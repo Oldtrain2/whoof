@@ -23,5 +23,10 @@ pages_build_output_dir = "./web"
 binding = "SYNC"
 bucket_name = "whoof-sync"
 
+# Workers AI — free-tier inference backing the AI Coach (functions/api/coach.js).
+# No API key; usage draws on the account's daily Workers AI allocation.
+[ai]
+binding = "AI"
+
 [observability]
 enabled = true
