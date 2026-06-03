@@ -346,6 +346,62 @@ describe('WhoopClient mocked BLE', () => {
       expect(w[0]).toBe(0xaa); expect(w[1]).toBe(0x01);
     });
 
+    it('startPhysiologyCapture fires the 7 stream toggles in order on 5.0', async () => {
+      const dev5 = makeFakeDevice('whoop5');
+      const c = new WhoopClient();
+      c._physiologyGapMs = 0;  // no inter-command delay in the test
+      // Suppress the background post-connect flow (which also starts realtime),
+      // so the only commands captured are this explicit sequence.
+      vi.spyOn(c, '_postConnectFlow').mockResolvedValue();
+      await c.connectToDevice(dev5);
+      const before = dev5._chars.cmd.writes.length;
+      await c.startPhysiologyCapture();
+      const pkts = dev5._chars.cmd.writes.slice(before).flatMap(w => decodeV5(w));
+      expect(pkts.map(p => p.cmd)).toEqual([
+        CommandNumber.TOGGLE_REALTIME_HR, CommandNumber.SEND_R10_R11_REALTIME,
+        CommandNumber.TOGGLE_IMU_MODE, CommandNumber.TOGGLE_PERSISTENT_R21,
+        CommandNumber.ENABLE_OPTICAL_DATA, CommandNumber.TOGGLE_OPTICAL_MODE,
+        CommandNumber.TOGGLE_PERSISTENT_R20,
+      ]);
+      // each is a revision-boolean ON payload [0x01, 0x01]
+      expect(Array.from(pkts[0].data.slice(0, 2))).toEqual([0x01, 0x01]);
+    });
+
+    it('setClock emits an 8-byte subseconds payload on 5.0', async () => {
+      const dev5 = makeFakeDevice('whoop5');
+      const c = new WhoopClient();
+      c._physiologyGapMs = 0;
+      await c.connectToDevice(dev5);
+      const before = dev5._chars.cmd.writes.length;
+      await c.setClock(1750000000);
+      const pkt = dev5._chars.cmd.writes.slice(before).flatMap(w => decodeV5(w))
+        .find(p => p.cmd === CommandNumber.SET_CLOCK);
+      expect(pkt).toBeDefined();
+      expect(pkt.data.length).toBeGreaterThanOrEqual(8);
+      const sec = pkt.data[0] | (pkt.data[1] << 8) | (pkt.data[2] << 16) | (pkt.data[3] << 24);
+      expect(sec >>> 0).toBe(1750000000);
+    });
+
+    it('setAlarm emits a 20-byte haptic payload on 5.0', async () => {
+      const dev5 = makeFakeDevice('whoop5');
+      const c = new WhoopClient();
+      c._physiologyGapMs = 0;
+      await c.connectToDevice(dev5);
+      const before = dev5._chars.cmd.writes.length;
+      await c.setAlarm(1750000000);
+      const pkt = dev5._chars.cmd.writes.slice(before).flatMap(w => decodeV5(w))
+        .find(p => p.cmd === CommandNumber.SET_ALARM_TIME);
+      expect(pkt).toBeDefined();
+      // V5 zero-pads the payload to a 4-byte boundary, so the decoded data may
+      // carry up to 3 trailing pad bytes past the 20 meaningful ones.
+      expect(pkt.data.length).toBeGreaterThanOrEqual(20);
+      expect(pkt.data[0]).toBe(0x04);
+      const sec = pkt.data[2] | (pkt.data[3] << 8) | (pkt.data[4] << 16) | (pkt.data[5] << 24);
+      expect(sec >>> 0).toBe(1750000000);
+      expect(Array.from(pkt.data.slice(8, 16))).toEqual([47, 152, 0, 0, 0, 0, 0, 0]);
+      expect(pkt.data[19]).toBe(30);
+    });
+
     it('routes a V5 PUFFIN_METADATA history-end into the dump queue', async () => {
       const dev5 = makeFakeDevice('whoop5');
       const c = new WhoopClient();

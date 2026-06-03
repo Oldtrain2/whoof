@@ -182,6 +182,10 @@ export const CommandNumber = Object.freeze({
   TOGGLE_IMU_MODE: 106,
   ENABLE_OPTICAL_DATA: 107,
   TOGGLE_OPTICAL_MODE: 108,
+  // 5.0 persistent realtime-stream toggles, used by the physiology-capture
+  // sequence to unlock R10/R11 optical + IMU streams.
+  TOGGLE_PERSISTENT_R20: 153,
+  TOGGLE_PERSISTENT_R21: 154,
   START_DEVICE_CONFIG_KEY_EXCHANGE: 115,
   SEND_NEXT_DEVICE_CONFIG: 116,
   START_FF_KEY_EXCHANGE: 117,

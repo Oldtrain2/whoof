@@ -99,6 +99,7 @@ export class WhoopClient {
     this._disconnectHandler = null;
     this._state = 'disconnected';
     this._family = 'whoop4';   // resolved per-connection from the discovered service
+    this._physiologyGapMs = 250;  // inter-command spacing for the 5.0 capture sequence
 
     // Cached strap state surfaced to the UI:
     this.charging = null;
@@ -404,11 +405,44 @@ export class WhoopClient {
   }
 
   async startRealtime() {
+    if (this._family === 'whoop5') return this.startPhysiologyCapture();
     await this._sendCommand(CommandNumber.TOGGLE_REALTIME_HR, new Uint8Array([0x01]));
   }
 
   async stopRealtime() {
+    if (this._family === 'whoop5') return this.stopPhysiologyCapture();
     await this._sendCommand(CommandNumber.TOGGLE_REALTIME_HR, new Uint8Array([0x00]));
+  }
+
+  // 5.0 realtime needs more than the single TOGGLE_REALTIME_HR: the strap only
+  // streams optical (R10/R11) + IMU once a sequence of stream toggles is sent,
+  // spaced out so the strap can act on each. Each command is a "revision
+  // boolean" payload [0x01, enabled]. Stop reverses the order with enabled=0.
+  async startPhysiologyCapture() {
+    const seq = [
+      CommandNumber.TOGGLE_REALTIME_HR, CommandNumber.SEND_R10_R11_REALTIME,
+      CommandNumber.TOGGLE_IMU_MODE, CommandNumber.TOGGLE_PERSISTENT_R21,
+      CommandNumber.ENABLE_OPTICAL_DATA, CommandNumber.TOGGLE_OPTICAL_MODE,
+      CommandNumber.TOGGLE_PERSISTENT_R20,
+    ];
+    await this._runSpacedCommands(seq, 0x01);
+  }
+
+  async stopPhysiologyCapture() {
+    const seq = [
+      CommandNumber.TOGGLE_PERSISTENT_R20, CommandNumber.TOGGLE_OPTICAL_MODE,
+      CommandNumber.ENABLE_OPTICAL_DATA, CommandNumber.TOGGLE_PERSISTENT_R21,
+      CommandNumber.TOGGLE_IMU_MODE, CommandNumber.SEND_R10_R11_REALTIME,
+      CommandNumber.TOGGLE_REALTIME_HR,
+    ];
+    await this._runSpacedCommands(seq, 0x00);
+  }
+
+  async _runSpacedCommands(cmds, enabled) {
+    for (let i = 0; i < cmds.length; i++) {
+      await this._sendCommand(cmds[i], new Uint8Array([0x01, enabled & 0x01]));
+      if (i < cmds.length - 1 && this._physiologyGapMs > 0) await delay(this._physiologyGapMs);
+    }
   }
 
   async getBatteryLevel() {
@@ -436,11 +470,17 @@ export class WhoopClient {
   }
 
   async setClock(unix = Math.floor(Date.now() / 1000)) {
+    if (this._family === 'whoop5') {
+      // 5.0 wants 8 bytes: u32 LE seconds + u32 LE subseconds (1/32768ths).
+      const sub = Math.floor((Date.now() % 1000) * 32768 / 1000);
+      const buf = new Uint8Array(8);
+      writeU32LE(buf, 0, unix);
+      writeU32LE(buf, 4, sub);
+      await this._sendCommand(CommandNumber.SET_CLOCK, buf);
+      return;
+    }
     const buf = new Uint8Array(4);
-    buf[0] = unix & 0xff;
-    buf[1] = (unix >>> 8) & 0xff;
-    buf[2] = (unix >>> 16) & 0xff;
-    buf[3] = (unix >>> 24) & 0xff;
+    writeU32LE(buf, 0, unix);
     await this._sendCommand(CommandNumber.SET_CLOCK, buf);
   }
 
@@ -497,11 +537,25 @@ export class WhoopClient {
 
   async setAlarm(unixTime) {
     if (!Number.isFinite(unixTime) || unixTime <= 0) throw new Error('alarm time invalid');
+    if (this._family === 'whoop5') {
+      // 5.0 alarm is a 20-byte payload: set sub-cmd, alarm id, u32 seconds,
+      // u16 subseconds, an 8-byte haptic waveform, loop control, and duration.
+      const buf = new Uint8Array(20);
+      buf[0] = 0x04;            // sub-command: set
+      buf[1] = 0x01;            // alarm id
+      writeU32LE(buf, 2, unixTime);
+      const sub = Math.floor((Date.now() % 1000) * 32768 / 1000);
+      buf[6] = sub & 0xff;
+      buf[7] = (sub >>> 8) & 0xff;
+      buf.set([47, 152, 0, 0, 0, 0, 0, 0], 8);  // default WHOOP haptic waveform
+      // bytes 16-17 loop control = 0
+      buf[18] = 7;             // overall loop count
+      buf[19] = 30;            // duration seconds
+      await this._sendCommand(CommandNumber.SET_ALARM_TIME, buf);
+      return;
+    }
     const buf = new Uint8Array(4);
-    buf[0] = unixTime & 0xff;
-    buf[1] = (unixTime >>> 8) & 0xff;
-    buf[2] = (unixTime >>> 16) & 0xff;
-    buf[3] = (unixTime >>> 24) & 0xff;
+    writeU32LE(buf, 0, unixTime);
     await this._sendCommand(CommandNumber.SET_ALARM_TIME, buf);
   }
 
@@ -616,3 +670,13 @@ function bytesOf(dataView) {
   // The browser hands us a DataView; convert to a plain Uint8Array view.
   return new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
 }
+
+function writeU32LE(buf, off, value) {
+  const v = value >>> 0;
+  buf[off]     = v & 0xff;
+  buf[off + 1] = (v >>> 8) & 0xff;
+  buf[off + 2] = (v >>> 16) & 0xff;
+  buf[off + 3] = (v >>> 24) & 0xff;
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
