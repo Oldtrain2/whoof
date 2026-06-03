@@ -97,6 +97,66 @@ export function caloriesFromHrSeries(hrPerSecond, age, weightKg, sex) {
 }
 
 // ---------------------------------------------------------------------------
+// Energy Bank — MET-model calorie split (resting vs active)
+// ---------------------------------------------------------------------------
+//
+// Ported from goose's energy_rollup. Unlike Keytel (which is one opaque
+// kcal/min number) this splits burn into a resting baseline and an active
+// component, which is what a "bank" UI needs. Resting follows the 22 kcal/kg/day
+// RMR rule; active is a per-sample MET, taken as the greater of the zone MET and
+// an HR-reserve MET, converted via kcal/min = MET·3.5·kg/200.
+//
+// Requires body weight. With no weight the model can't run — callers should
+// fall back to caloriesFromHrSeries (Keytel, 70 kg default).
+
+const ZONE_ACTIVE_MET = [0, 1, 2.5, 5, 8]; // indexed by zone-1 (z1..z5)
+
+/**
+ * @param {Object} o
+ * @param {ReadonlyArray<number|null>} o.hrSeries  Per-sample HR (bpm).
+ * @param {number} o.weightKg
+ * @param {number} [o.restingHr=60]
+ * @param {number} o.maxHrBpm
+ * @param {number} [o.sampleIntervalSec=1]
+ * @returns {{restingKcal:number, activeKcal:number, totalKcal:number}|null}
+ */
+export function energyBankCalories({ hrSeries, weightKg, restingHr = 60, maxHrBpm, sampleIntervalSec = 1 } = {}) {
+  if (!hrSeries || hrSeries.length === 0 || !weightKg || weightKg <= 0) return null;
+  const dtMin = (Number.isFinite(sampleIntervalSec) && sampleIntervalSec > 0 ? sampleIntervalSec : 1) / 60;
+  const rest = Number.isFinite(restingHr) && restingHr > 0 ? restingHr : 60;
+  const max = Number.isFinite(maxHrBpm) && maxHrBpm > rest ? maxHrBpm : rest + 130;
+
+  const restingKcal = (weightKg * 22 * (hrSeries.length * dtMin)) / 1440;
+
+  let activeKcal = 0;
+  for (const hr of hrSeries) {
+    if (hr === null || hr === undefined || hr < 30) continue;
+    const z = zoneForHr(hr, max);
+    const zoneMet = z ? ZONE_ACTIVE_MET[z - 1] : 0;
+    const reserve = Math.max(0, Math.min(1, (hr - rest) / (max - rest)));
+    const reserveMet = 7 * Math.pow(reserve, 1.35);
+    const met = Math.max(zoneMet, reserveMet);
+    activeKcal += (met * 3.5 * weightKg / 200) * dtMin;
+  }
+
+  const r = (x) => Math.round(x * 10) / 10;
+  const rp = r(restingKcal);
+  const ap = r(activeKcal);
+  return { restingKcal: rp, activeKcal: ap, totalKcal: r(rp + ap) };
+}
+
+/**
+ * Strain budget remaining for the day: recovery sets a 0-21 ceiling, today's
+ * strain spends against it. Drives the Energy Bank gauge.
+ * @returns {number|null} remaining strain budget in [0, 21], or null.
+ */
+export function energyBankRemaining(recoveryScore, currentStrain) {
+  if (!Number.isFinite(recoveryScore)) return null;
+  const budget = (recoveryScore / 100) * 21;
+  return Math.round(Math.max(0, budget - (currentStrain || 0)) * 100) / 100;
+}
+
+// ---------------------------------------------------------------------------
 // Stress level (continuous 5-min RMSSD windows during wake hours)
 // ---------------------------------------------------------------------------
 

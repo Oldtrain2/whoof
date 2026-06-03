@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { strainScore, acwr } from '../../../web/js/metrics/strain.js';
+import { strainScore, acwr, zoneWeightedStrain } from '../../../web/js/metrics/strain.js';
 
 describe('strainScore', () => {
   it('is near zero at rest', () => {
@@ -46,6 +46,35 @@ describe('strainScore', () => {
     const a = strainScore(oneHz, 30, 60.0, 1.0);
     const b = strainScore(fiveS, 30, 60.0, 5.0);
     expect(a).toBeCloseTo(b, 1);
+  });
+});
+
+describe('zoneWeightedStrain', () => {
+  it('is 0 with no zone time', () => {
+    expect(zoneWeightedStrain({ zoneMinutes: [0, 0, 0, 0, 0] })).toBe(0);
+  });
+
+  it('returns 0 for malformed input', () => {
+    expect(zoneWeightedStrain({})).toBe(0);
+    expect(zoneWeightedStrain({ zoneMinutes: [1, 2] })).toBe(0);
+  });
+
+  it('weights higher zones more: an hour in Z5 beats an hour in Z1', () => {
+    const z1 = zoneWeightedStrain({ zoneMinutes: [60, 0, 0, 0, 0], avgHr: 110, restingHr: 60, maxHrBpm: 190 });
+    const z5 = zoneWeightedStrain({ zoneMinutes: [0, 0, 0, 0, 60], avgHr: 175, restingHr: 60, maxHrBpm: 190 });
+    expect(z5).toBeGreaterThan(z1);
+  });
+
+  it('is bounded to [0, 21]', () => {
+    const huge = zoneWeightedStrain({ zoneMinutes: [0, 0, 0, 0, 600], avgHr: 188, restingHr: 60, maxHrBpm: 190 });
+    expect(huge).toBeGreaterThanOrEqual(0);
+    expect(huge).toBeLessThanOrEqual(21);
+  });
+
+  it('works without a reserve term (zone-only blend = 70%)', () => {
+    // 20 weighted zone-minutes → zoneScore 1.0; no HR reserve → final 0.7.
+    const s = zoneWeightedStrain({ zoneMinutes: [20, 0, 0, 0, 0] });
+    expect(s).toBeCloseTo(0.7, 2);
   });
 });
 

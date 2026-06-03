@@ -63,6 +63,38 @@ export function strainScore(hrBpm, age = 30, restingHr = null, sampleIntervalSec
 }
 
 /**
+ * Zone-weighted strain — a more interpretable companion to strainScore().
+ *
+ * Ported from goose's zone_score model. Time-in-zone is weighted 1..5 (a minute
+ * in Z5 counts 5× a minute in Z1), normalised into the 0-21 range, then blended
+ * 70/30 with an HR-reserve term so the score reflects both *how long* and *how
+ * hard*. Unlike the exponential strainScore it degrades gracefully to 0 with no
+ * load and is trivial to explain ("you banked N zone-minutes").
+ *
+ * @param {Object} o
+ * @param {ReadonlyArray<number>} o.zoneMinutes  [z1..z5] minutes in each zone.
+ * @param {number} o.avgHr        Mean HR over the active window (bpm).
+ * @param {number} o.restingHr    Resting HR (bpm).
+ * @param {number} o.maxHrBpm     Max HR (bpm).
+ * @returns {number}              Strain in [0, 21].
+ */
+export function zoneWeightedStrain({ zoneMinutes, avgHr, restingHr, maxHrBpm } = {}) {
+  if (!Array.isArray(zoneMinutes) || zoneMinutes.length < 5) return 0;
+  const weights = [1, 2, 3, 4, 5];
+  let zoneLoad = 0;
+  for (let i = 0; i < 5; i++) zoneLoad += (zoneMinutes[i] || 0) * weights[i];
+  const zoneScore = Math.max(0, Math.min(21, zoneLoad / 20));
+
+  let reserveScore = 0;
+  if (Number.isFinite(avgHr) && Number.isFinite(restingHr) && Number.isFinite(maxHrBpm) && maxHrBpm > restingHr) {
+    const reserve = Math.max(0, Math.min(1, (avgHr - restingHr) / (maxHrBpm - restingHr)));
+    reserveScore = reserve * 21;
+  }
+  const final = 0.7 * zoneScore + 0.3 * reserveScore;
+  return Math.round(final * 100) / 100;
+}
+
+/**
  * Acute:Chronic Workload Ratio. Compares short-term (acute) strain
  * exposure to a longer-term (chronic) baseline. A ratio of 0.8–1.3 is
  * the canonical "sweet spot"; outside that range is associated with

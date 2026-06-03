@@ -5,6 +5,8 @@ import {
   zoneSecondsFromHrSeries,
   caloriesPerMinute,
   caloriesFromHrSeries,
+  energyBankCalories,
+  energyBankRemaining,
 } from '../../../web/js/metrics/zones.js';
 
 describe('maxHr', () => {
@@ -89,5 +91,54 @@ describe('caloriesFromHrSeries', () => {
   it('falls back to default weight (70 kg) when weight is null', () => {
     const cals = caloriesFromHrSeries(Array(60).fill(100.0), 30, null, 'M');
     expect(cals).toBeGreaterThan(0);
+  });
+});
+
+describe('energyBankCalories (MET model)', () => {
+  it('returns null without body weight (caller falls back to Keytel)', () => {
+    expect(energyBankCalories({ hrSeries: Array(60).fill(120), maxHrBpm: 190 })).toBeNull();
+    expect(energyBankCalories({ hrSeries: Array(60).fill(120), weightKg: 0, maxHrBpm: 190 })).toBeNull();
+  });
+
+  it('returns null for an empty series', () => {
+    expect(energyBankCalories({ hrSeries: [], weightKg: 75, maxHrBpm: 190 })).toBeNull();
+  });
+
+  it('splits burn into resting + active, totalling the two', () => {
+    // 10 min steady at 150 bpm, 75 kg, rest 55, max 190.
+    const r = energyBankCalories({
+      hrSeries: Array(600).fill(150), weightKg: 75, restingHr: 55, maxHrBpm: 190, sampleIntervalSec: 1,
+    });
+    expect(r).not.toBeNull();
+    expect(r.restingKcal).toBeGreaterThan(0);
+    expect(r.activeKcal).toBeGreaterThan(r.restingKcal); // hard effort burns more than baseline
+    expect(r.totalKcal).toBeCloseTo(Math.round((r.restingKcal + r.activeKcal) * 10) / 10, 5);
+  });
+
+  it('a harder day banks more active kcal than an easy one', () => {
+    const easy = energyBankCalories({ hrSeries: Array(600).fill(95), weightKg: 75, restingHr: 55, maxHrBpm: 190 });
+    const hard = energyBankCalories({ hrSeries: Array(600).fill(170), weightKg: 75, restingHr: 55, maxHrBpm: 190 });
+    expect(hard.activeKcal).toBeGreaterThan(easy.activeKcal);
+  });
+
+  it('respects the sample interval (coarser series, same wall-clock → similar total)', () => {
+    const oneHz = energyBankCalories({ hrSeries: Array(600).fill(150), weightKg: 75, restingHr: 55, maxHrBpm: 190, sampleIntervalSec: 1 });
+    const fiveS = energyBankCalories({ hrSeries: Array(120).fill(150), weightKg: 75, restingHr: 55, maxHrBpm: 190, sampleIntervalSec: 5 });
+    expect(fiveS.totalKcal).toBeCloseTo(oneHz.totalKcal, 0);
+  });
+});
+
+describe('energyBankRemaining', () => {
+  it('null when recovery is not finite', () => {
+    expect(energyBankRemaining(null, 5)).toBeNull();
+  });
+
+  it('full recovery gives a 21-point budget', () => {
+    expect(energyBankRemaining(100, 0)).toBeCloseTo(21, 5);
+  });
+
+  it('strain spends the budget down, floored at 0', () => {
+    expect(energyBankRemaining(50, 5)).toBeCloseTo(10.5 - 5, 5); // budget 10.5
+    expect(energyBankRemaining(50, 100)).toBe(0);
   });
 });
