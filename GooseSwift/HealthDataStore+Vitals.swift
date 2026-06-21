@@ -72,80 +72,9 @@ extension HealthDataStore {
       return vo2MaxHealthMonitorSnapshot(base: snapshot)
     case "skin-temp-trend":
       return skinTempTrendHealthMonitorSnapshot(base: snapshot)
-    case "oxygen-saturation":
-      if let stored = dailyRecoveryMetricSnapshot(
-        base: snapshot,
-        valueKey: "oxygen_saturation_percent",
-        unit: "%",
-        fractionDigits: 0,
-        metricName: "oxygen saturation"
-      ) {
-        return stored
-      }
-      if let unavailable = preferredDailyRecoveryUnavailableMetric(metricID: "oxygen_saturation_percent") {
-        return unavailablePacketSnapshot(
-          base: snapshot,
-          status: "Unavailable",
-          freshness: unavailable["date_key"] as? String ?? "Stored blocker",
-          provenance: Self.recoveryUnavailableProvenanceSummary(unavailable),
-          sourceDetail: Self.recoveryUnavailableSourceDetail(unavailable)
-        )
-      }
-      if packetInputStatus != "No run", decodedPacketFrameCount() > 0 {
-        let pipCount = pulseInformationPacketCount()
-        if pipCount > 0 {
-          return unavailablePacketSnapshot(
-            base: snapshot,
-            status: "PIP candidate",
-            freshness: "\(pipCount) K25/K26 packets",
-            provenance: "metrics.vital_event_features",
-            sourceDetail: "K25/K26 pulse-information packets present; SpO2 field unresolved"
-          )
-        }
-      }
-      return unresolvedPacketVitalSnapshot(
-        base: snapshot,
-        status: "Field unresolved",
-        freshness: packetInputStatus == "No run" ? "Run pending" : "SpO2 field unresolved",
-        provenance: "metrics.vital_event_features",
-        sourceDetail: "SpO2 packet field unresolved",
-        useVitalCandidateStatus: false
-      )
-    case "wrist-temperature":
-      return wristTemperatureHealthMonitorSnapshot(base: snapshot)
     default:
       return snapshot
     }
-  }
-
-  func wristTemperatureHealthMonitorSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
-    if let stored = dailyRecoveryMetricSnapshot(
-      base: snapshot,
-      valueKey: "skin_temperature_delta_c",
-      unit: "C",
-      fractionDigits: 1,
-      metricName: "skin temperature delta",
-      signed: true
-    ) {
-      return stored
-    }
-    if let unavailable = preferredDailyRecoveryUnavailableMetric(metricID: "skin_temperature_delta_c") {
-      return unavailablePacketSnapshot(
-        base: snapshot,
-        status: "Unavailable",
-        freshness: unavailable["date_key"] as? String ?? "Stored blocker",
-        provenance: Self.recoveryUnavailableProvenanceSummary(unavailable),
-        sourceDetail: Self.recoveryUnavailableSourceDetail(unavailable)
-      )
-    }
-    return unresolvedPacketVitalSnapshot(
-      base: snapshot,
-      status: "Semantics pending",
-      freshness: packetInputStatus == "No run" ? "Run pending" : "Semantics pending",
-      provenance: "metrics.vital_event_features",
-      sourceDetail: "temperature semantics unverified; candidate not promoted",
-      useVitalCandidateStatus: true
-    )
   }
 
   func restingHeartRateHealthMonitorSnapshot(
