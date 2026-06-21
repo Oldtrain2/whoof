@@ -63,7 +63,6 @@ struct GeminiCoachClient {
     }
     components.queryItems = [
       URLQueryItem(name: "alt", value: "sse"),
-      URLQueryItem(name: "key", value: apiKey),
     ]
     guard let url = components.url else {
       throw GeminiCoachError.invalidURL
@@ -77,6 +76,8 @@ struct GeminiCoachClient {
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+    // Key as a header, not a URL query param, so it does not land in URL logs.
+    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
     request.httpBody = bodyData
     request.timeoutInterval = 180
 

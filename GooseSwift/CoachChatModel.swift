@@ -203,10 +203,13 @@ final class CoachChatModel: ObservableObject {
         ],
       ])
     }
+    // Keep the tool results and the answer instruction in a single user turn so
+    // the model answers immediately, rather than seeing a second consecutive
+    // user message after the function responses.
+    responseParts.append([
+      "text": "Use the tool outputs above to answer this original Coach question now. Do not request more tools.\n\nOriginal question:\n\(prompt)",
+    ])
     contents.append(["role": "user", "parts": responseParts])
-    contents.append(GeminiCoachRequest.userText(
-      "Use the tool outputs above to answer this original Coach question now. Do not request more tools.\n\nOriginal question:\n\(prompt)"
-    ))
 
     // Pass 2: final answer, no tools.
     let secondBody = GeminiCoachRequest.body(model: model, contents: contents, includeTools: false)
