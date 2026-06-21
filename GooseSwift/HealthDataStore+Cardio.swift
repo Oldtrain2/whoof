@@ -108,6 +108,55 @@ extension HealthDataStore {
     }
   }
 
+  /// Total time spent in each heart-rate zone (1...5), in minutes, summed across
+  /// every activity session that overlaps the given day. Returns `[:]` when no
+  /// session reported zone durations so the UI can fall back to an empty state.
+  func heartRateZoneDurationMinutes(
+    for date: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [Int: Double] {
+    let dayStart = calendar.startOfDay(for: date)
+    guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else {
+      return [:]
+    }
+    var minutesByZone: [Int: Double] = [:]
+    for session in cardioLoadActivitySessions(from: dayStart, to: dayEnd) {
+      let metrics = cardioLoadActivityMetricsByName(sessionID: session["session_id"] as? String)
+      for zoneID in 1...5 {
+        let seconds = Self.doubleValue(metrics["hr_zone_\(zoneID)_duration"]?["value"]) ?? 0
+        guard seconds > 0 else { continue }
+        minutesByZone[zoneID, default: 0] += seconds / 60.0
+      }
+    }
+    return minutesByZone
+  }
+
+  /// Total exercise duration (minutes) across today's activity sessions.
+  func totalExerciseDurationMinutes(
+    for date: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Double {
+    let dayStart = calendar.startOfDay(for: date)
+    guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else {
+      return 0
+    }
+    var totalMinutes = 0.0
+    for session in cardioLoadActivitySessions(from: dayStart, to: dayEnd) {
+      let metrics = cardioLoadActivityMetricsByName(sessionID: session["session_id"] as? String)
+      let seconds = Self.doubleValue(metrics["duration"]?["value"])
+        ?? Self.doubleValue(session["duration_ms"]).map { $0 / 1000 }
+        ?? {
+          guard let startMs = Self.int64Value(session["start_time_unix_ms"]),
+                let endMs = Self.int64Value(session["end_time_unix_ms"]),
+                endMs > startMs
+          else { return 0.0 }
+          return Double(endMs - startMs) / 1000
+        }()
+      totalMinutes += max(seconds, 0) / 60.0
+    }
+    return totalMinutes
+  }
+
   func cardioLoadActivityMetricsByName(sessionID: String?) -> [String: [String: Any]] {
     guard let sessionID else {
       return [:]

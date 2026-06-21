@@ -190,6 +190,82 @@ fn gen4_v24_sensor_history_decodes_raw_dsp_fields() {
     }
 }
 
+/// Authoritative Gen4 IMU/motion frame captured by the openwhoop project from a
+/// real WHOOP 4.0 strap (their `parse_historical_packet` test vector). openwhoop
+/// decodes it to bpm 62 and accelerometer_x[0] = -2.184 g, which at the
+/// ACC_SENS=1875 scale is the raw big-endian i16 value -4095. This pins the Goose
+/// Gen4 IMU decoder (offsets + big-endian) to real hardware data.
+const GEN4_IMU_GOLDEN_FRAME: &str =
+    include_str!("data/gen4_imu_openwhoop_golden.hex");
+
+#[test]
+fn gen4_imu_history_decodes_big_endian_against_openwhoop_golden_frame() {
+    let frame = hex::decode(GEN4_IMU_GOLDEN_FRAME.trim()).unwrap();
+    let parsed = parse_frame(DeviceType::Gen4, &frame).unwrap();
+    assert!(parsed.payload_crc_valid, "golden frame crc32 should validate");
+
+    let ParsedPayload::DataPacket {
+        body_summary: Some(summary),
+        ..
+    } = parsed.parsed_payload.unwrap()
+    else {
+        panic!("expected a Gen4 data packet");
+    };
+    let DataPacketBodySummary::Gen4Motion { bpm, axes, .. } = summary else {
+        panic!("expected Gen4Motion, got {summary:?}");
+    };
+
+    assert_eq!(bpm, Some(62), "heart rate at payload[17]");
+    let acc_x = axes
+        .iter()
+        .find(|axis| axis.name == "accelerometer_x")
+        .expect("accelerometer_x axis");
+    assert_eq!(acc_x.offset, 88, "openwhoop data[85] + 3 prefix");
+    assert_eq!(acc_x.parsed_count, 100);
+    // -2.184 g * 1875 = -4095 ; -2.0336 g * 1875 = -3813. Big-endian decode.
+    assert_eq!(acc_x.preview.first().copied(), Some(-4095));
+    assert_eq!(acc_x.preview.get(1).copied(), Some(-3813));
+    assert!(
+        axes.iter().any(|axis| axis.name == "gyroscope_z"),
+        "all six accel/gyro axes present"
+    );
+}
+
+/// Gen4 realtime (type 40) carries the heart rate at payload[8] with a different
+/// layout from history packets; it must decode to a Gen4History body tagged
+/// gen4_realtime, not be misread as a K-history packet.
+#[test]
+fn gen4_realtime_packet_decodes_heart_rate_at_offset_8() {
+    let mut payload = vec![0u8; 9];
+    payload[0] = PACKET_TYPE_REALTIME_DATA;
+    payload[1] = 0x39; // sequence (not a K value)
+    // timestamp seconds = LE [payload[2..6]]
+    payload[2] = 0x44;
+    payload[3] = 0x33;
+    payload[4] = 0x22;
+    payload[5] = 0x11;
+    payload[8] = 64; // bpm
+    let frame = build_gen4_payload_frame(&payload);
+
+    let parsed = parse_frame(DeviceType::Gen4, &frame).unwrap();
+    let ParsedPayload::DataPacket {
+        timestamp_seconds,
+        body_summary: Some(summary),
+        ..
+    } = parsed.parsed_payload.unwrap()
+    else {
+        panic!("expected a Gen4 data packet");
+    };
+    assert_eq!(timestamp_seconds, Some(0x11223344));
+    match summary {
+        DataPacketBodySummary::Gen4History { bpm, warnings, .. } => {
+            assert_eq!(bpm, Some(64));
+            assert!(warnings.iter().any(|w| w == "gen4_realtime"));
+        }
+        other => panic!("expected Gen4History (realtime), got {other:?}"),
+    }
+}
+
 /// The same byte layout under Gen5 framing must NOT take the Gen4 history path;
 /// k=24 stays a Gen5 normal-history marker summary.
 #[test]

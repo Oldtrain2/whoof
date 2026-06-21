@@ -392,8 +392,18 @@ extension HealthDataStore {
     "--"
   }
 
-  func strainDurationDisplayText() -> String {
-    "--"
+  func strainDurationDisplayText(for date: Date = Date(), calendar: Calendar = .current) -> String {
+    let minutes = totalExerciseDurationMinutes(for: date, calendar: calendar)
+    guard minutes >= 1 else {
+      return "--"
+    }
+    let rounded = Int(minutes.rounded())
+    let hours = rounded / 60
+    let mins = rounded % 60
+    if hours > 0 {
+      return "\(hours)h \(mins)m"
+    }
+    return "\(mins)m"
   }
 
   func strainEnergyDisplayText(for date: Date = Date(), calendar: Calendar = .current) -> String {

@@ -169,6 +169,16 @@ pub enum DataPacketBodySummary {
         sensor: Option<Gen4SensorData>,
         warnings: Vec<String>,
     },
+    /// WHOOP Gen4 high-rate IMU/motion history packet (openwhoop
+    /// `parse_historical_packet_with_imu`). Accel/gyro samples are i16
+    /// **big-endian**; axis byte offsets are the openwhoop offsets shifted by
+    /// +3 for the `[type, k, status]` prefix. The packet also carries the
+    /// per-window heart rate at payload[17].
+    Gen4Motion {
+        bpm: Option<u8>,
+        axes: Vec<I16SeriesSummary>,
+        warnings: Vec<String>,
+    },
 }
 
 /// Raw DSP sensor fields decoded from a Gen4 V12/V24 historical reading.
@@ -373,6 +383,32 @@ pub fn parse_frame(device_type: DeviceType, frame: &[u8]) -> GooseResult<ParsedF
     })
 }
 
+/// Best-effort detection of which WHOOP generation produced a raw frame, from
+/// its header shape alone. Gen4 ("Harvard") uses a 4-byte header with an 8-bit
+/// CRC over the length; all Gen5 straps use an 8-byte header with a CRC16 over
+/// the first 6 bytes. Returns `None` when neither header CRC validates (e.g. a
+/// truncated or corrupt frame), so callers can fall back to an explicit default.
+///
+/// Gen5 returns `DeviceType::Goose` (the generic Gen5 family member); Maverick
+/// vs Goose vs Puffin cannot be told apart from framing alone.
+pub fn detect_device_type_from_frame(frame: &[u8]) -> Option<DeviceType> {
+    if frame.first().copied() != Some(FRAME_START) {
+        return None;
+    }
+    // Gen5: 8-byte header, CRC16-Modbus over bytes [0..6] stored at [6..8].
+    if frame.len() >= 8 {
+        let expected = u16::from_le_bytes([frame[6], frame[7]]);
+        if crc16_modbus(&frame[..6]) == expected {
+            return Some(DeviceType::Goose);
+        }
+    }
+    // Gen4: 4-byte header, CRC8 over the 2 length bytes stored at [3].
+    if frame.len() >= 4 && crc8(&frame[1..3]) == frame[3] {
+        return Some(DeviceType::Gen4);
+    }
+    None
+}
+
 pub fn build_v5_command_frame(sequence: u8, command: u8, data: &[u8]) -> Vec<u8> {
     let mut payload = vec![PACKET_TYPE_COMMAND, sequence, command];
     payload.extend_from_slice(data);
@@ -476,12 +512,17 @@ fn parse_payload(device_type: DeviceType, payload: &[u8]) -> Option<ParsedPayloa
         PACKET_TYPE_EVENT
         | PACKET_TYPE_RELATIVE_PUFFIN_EVENTS
         | PACKET_TYPE_PUFFIN_EVENTS_FROM_STRAP => Some(parse_event_payload(payload)),
+        PACKET_TYPE_REALTIME_DATA | PACKET_TYPE_REALTIME_RAW_DATA
+            if device_type == DeviceType::Gen4 =>
+        {
+            Some(parse_gen4_realtime_payload(payload))
+        }
         PACKET_TYPE_REALTIME_DATA
         | PACKET_TYPE_REALTIME_RAW_DATA
         | PACKET_TYPE_HISTORICAL_DATA
         | PACKET_TYPE_REALTIME_IMU_DATA_STREAM
         | PACKET_TYPE_HISTORICAL_IMU_DATA_STREAM => {
-            Some(parse_data_packet_payload(device_type, payload))
+            Some(parse_data_packet_payload(device_type, packet_type, payload))
         }
         _ => Some(ParsedPayload::Raw {
             data_offset: 1.min(payload.len()),
@@ -499,6 +540,15 @@ fn is_partial_data_packet_type_allowed(packet_type: u8) -> bool {
             | PACKET_TYPE_HISTORICAL_DATA
             | PACKET_TYPE_REALTIME_IMU_DATA_STREAM
             | PACKET_TYPE_HISTORICAL_IMU_DATA_STREAM
+    )
+}
+
+/// History-bearing data packet types. The Gen4 history-body decoder keys on the
+/// `K` value at payload[1], which is only meaningful for these packet types.
+fn is_historical_data_packet_type(packet_type: u8) -> bool {
+    matches!(
+        packet_type,
+        PACKET_TYPE_HISTORICAL_DATA | PACKET_TYPE_HISTORICAL_IMU_DATA_STREAM
     )
 }
 
@@ -553,7 +603,11 @@ fn parse_event_payload(payload: &[u8]) -> ParsedPayload {
     }
 }
 
-fn parse_data_packet_payload(device_type: DeviceType, payload: &[u8]) -> ParsedPayload {
+fn parse_data_packet_payload(
+    device_type: DeviceType,
+    packet_type: u8,
+    payload: &[u8],
+) -> ParsedPayload {
     let mut warnings = Vec::new();
     if payload.len() < 13 {
         warnings.push("data_packet_header_too_short".to_string());
@@ -566,6 +620,7 @@ fn parse_data_packet_payload(device_type: DeviceType, payload: &[u8]) -> ParsedP
     }
     let (body_summary, body_warnings) = parse_data_packet_body_summary(
         device_type,
+        packet_type,
         payload,
         packet_k,
         hr_marker_offset,
@@ -591,6 +646,7 @@ fn parse_data_packet_payload(device_type: DeviceType, payload: &[u8]) -> ParsedP
 
 fn parse_data_packet_body_summary(
     device_type: DeviceType,
+    packet_type: u8,
     payload: &[u8],
     packet_k: Option<u8>,
     hr_marker_offset: Option<usize>,
@@ -600,16 +656,19 @@ fn parse_data_packet_body_summary(
         return (None, Vec::new());
     };
 
-    // Gen4 ("Harvard", WHOOP 4.0) packs full vitals into the history body, so it
-    // needs its own decoder rather than the Gen5 marker/R17/motion split below.
-    // Large packets are IMU/motion frames (deferred to the Gen5 motion summary,
-    // whose accel/gyro offsets are shared); everything else is a per-second
-    // history reading carrying heart rate, RR intervals, and DSP sensor fields.
-    if device_type == DeviceType::Gen4 {
+    // Gen4 ("Harvard", WHOOP 4.0) packs full vitals into the *history* body, so
+    // it needs its own decoder rather than the Gen5 marker/R17/motion split
+    // below. Only applies to historical-data packets: a Gen4 realtime packet
+    // (type 40) has a different layout where payload[1] is a sequence byte, not
+    // a K value, so decoding it as history would be garbage. Large history
+    // packets are IMU/motion frames and are left to the existing motion summary
+    // for now (their per-second siblings already carry heart rate + RR).
+    if device_type == DeviceType::Gen4 && is_historical_data_packet_type(packet_type) {
         let data_len = payload.len().saturating_sub(3);
         if data_len < GEN4_IMU_MIN_DATA_LEN {
             return parse_gen4_history_body_summary(payload, packet_k);
         }
+        return parse_gen4_imu_body_summary(payload);
     }
 
     match packet_k {
@@ -801,11 +860,93 @@ fn parse_gen4_sensor_data(payload: &[u8], warnings: &mut Vec<String>) -> Option<
     })
 }
 
+/// Samples per accelerometer/gyroscope axis in a Gen4 IMU history packet.
+const GEN4_IMU_SAMPLES_PER_AXIS: usize = 100;
+
+/// Decode a Gen4 high-rate IMU/motion history packet. Heart rate is at
+/// payload[17]; each accel/gyro axis is 100 big-endian i16 samples at the
+/// openwhoop offsets (85/285/485/688/888/1088) shifted by +3 for the prefix.
+fn parse_gen4_imu_body_summary(payload: &[u8]) -> (Option<DataPacketBodySummary>, Vec<String>) {
+    let bpm = payload.get(17).copied();
+    let mut axes = Vec::new();
+    let mut warnings = Vec::new();
+    for (name, offset) in [
+        ("accelerometer_x", 88),
+        ("accelerometer_y", 288),
+        ("accelerometer_z", 488),
+        ("gyroscope_x", 691),
+        ("gyroscope_y", 891),
+        ("gyroscope_z", 1091),
+    ] {
+        let (summary, axis_warnings) =
+            summarize_i16_series_endian(payload, offset, GEN4_IMU_SAMPLES_PER_AXIS, name, true);
+        warnings.extend(axis_warnings);
+        if let Some(summary) = summary {
+            axes.push(summary);
+        }
+    }
+
+    (
+        Some(DataPacketBodySummary::Gen4Motion {
+            bpm,
+            axes,
+            warnings: warnings.clone(),
+        }),
+        warnings,
+    )
+}
+
+/// Decode a Gen4 realtime heart-rate packet (type 40). Per openwhoop
+/// `parse_realtime_hr` the timestamp seconds are `[cmd(payload[2]), payload[3..6]]`,
+/// followed by 2 subsecond bytes, then the heart rate at payload[8]. The bpm is
+/// surfaced via a `Gen4History` body (tagged `gen4_realtime`) so the existing
+/// heart-rate feature extractor consumes it with no extra wiring.
+fn parse_gen4_realtime_payload(payload: &[u8]) -> ParsedPayload {
+    let mut warnings = Vec::new();
+    let bpm = payload.get(8).copied();
+    if bpm.is_none() {
+        warnings.push("gen4_realtime_bpm_missing".to_string());
+    }
+    ParsedPayload::DataPacket {
+        packet_k: payload.get(1).copied(),
+        domain: Some("gen4_realtime_heart_rate".to_string()),
+        status_or_stream: payload.get(2).copied(),
+        counter_or_page: None,
+        timestamp_seconds: read_u32_le(payload, 2),
+        timestamp_subseconds: read_u16_le(payload, 6),
+        hr_marker_offset: Some(8),
+        hr_present_marker: bpm,
+        body_offset: 8.min(payload.len()),
+        body_hex: hex::encode(&payload[8.min(payload.len())..]),
+        body_summary: Some(DataPacketBodySummary::Gen4History {
+            bpm,
+            rr_intervals_ms: Vec::new(),
+            rr_count: None,
+            sensor: None,
+            warnings: vec!["gen4_realtime".to_string()],
+        }),
+        warnings,
+    }
+}
+
 fn summarize_i16_series(
     payload: &[u8],
     offset: usize,
     expected_count: usize,
     name: &str,
+) -> (Option<I16SeriesSummary>, Vec<String>) {
+    summarize_i16_series_endian(payload, offset, expected_count, name, false)
+}
+
+/// Like `summarize_i16_series` but selectable endianness. Gen4 IMU samples are
+/// stored big-endian (openwhoop `parse_historical_packet_with_imu` reads
+/// `i16::from_be_bytes`), unlike the little-endian Gen5 motion streams.
+fn summarize_i16_series_endian(
+    payload: &[u8],
+    offset: usize,
+    expected_count: usize,
+    name: &str,
+    big_endian: bool,
 ) -> (Option<I16SeriesSummary>, Vec<String>) {
     if expected_count == 0 {
         return (
@@ -836,7 +977,11 @@ fn summarize_i16_series(
     let mut preview = Vec::new();
     for index in 0..parsed_count {
         let sample_offset = offset + index * 2;
-        let value = read_i16_le(payload, sample_offset).expect("parsed_count guards bounds");
+        let value = if big_endian {
+            read_i16_be(payload, sample_offset).expect("parsed_count guards bounds")
+        } else {
+            read_i16_le(payload, sample_offset).expect("parsed_count guards bounds")
+        };
         min = Some(min.map_or(value, |current: i16| current.min(value)));
         max = Some(max.map_or(value, |current: i16| current.max(value)));
         sum += i64::from(value);
@@ -958,6 +1103,13 @@ fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
 
 fn read_i16_le(bytes: &[u8], offset: usize) -> Option<i16> {
     Some(i16::from_le_bytes([
+        *bytes.get(offset)?,
+        *bytes.get(offset + 1)?,
+    ]))
+}
+
+fn read_i16_be(bytes: &[u8], offset: usize) -> Option<i16> {
+    Some(i16::from_be_bytes([
         *bytes.get(offset)?,
         *bytes.get(offset + 1)?,
     ]))

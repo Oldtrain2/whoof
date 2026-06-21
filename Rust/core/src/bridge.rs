@@ -2679,6 +2679,7 @@ fn body_summary_kind(summary: Option<&DataPacketBodySummary>) -> &'static str {
         Some(DataPacketBodySummary::RawMotionK10 { .. }) => "raw_motion_k10",
         Some(DataPacketBodySummary::RawMotionK21 { .. }) => "raw_motion_k21",
         Some(DataPacketBodySummary::Gen4History { .. }) => "gen4_history",
+        Some(DataPacketBodySummary::Gen4Motion { .. }) => "gen4_motion",
         None => "none",
     }
 }
@@ -7557,7 +7558,10 @@ where
 
 fn parse_device_type(value: &str) -> GooseResult<DeviceType> {
     match value {
-        "GEN_4" | "Gen4" | "gen4" => Ok(DeviceType::Gen4),
+        // Swift sends "GEN4" (GooseBLETypes.rustDeviceType); accept the
+        // serde SCREAMING_SNAKE_CASE form too. Without "GEN4" every live WHOOP
+        // 4.0 frame failed device-type parsing and never decoded as Gen4.
+        "GEN4" | "GEN_4" | "Gen4" | "gen4" => Ok(DeviceType::Gen4),
         "MAVERICK" | "Maverick" | "maverick" => Ok(DeviceType::Maverick),
         "PUFFIN" | "Puffin" | "puffin" => Ok(DeviceType::Puffin),
         "GOOSE" | "Goose" | "goose" => Ok(DeviceType::Goose),

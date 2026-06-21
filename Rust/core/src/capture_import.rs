@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     GooseError, GooseResult,
     fixtures::{CAPTURED_FRAME_BATCH_SCHEMA, FRAME_HEX_SCHEMA, FixtureIndexReport, IndexedFixture},
-    protocol::{DeviceType, decode_hex_with_whitespace, parse_frame},
+    protocol::{DeviceType, decode_hex_with_whitespace, detect_device_type_from_frame, parse_frame},
     store::{
         CaptureSessionInput, DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES, DecodedFrameInput,
         GooseStore, RawEvidenceInput, RawEvidencePayloadRetentionReport,
@@ -1108,7 +1108,14 @@ fn capture_sqlite_frame_input(
         frame_hex: row.value_hex.clone(),
         sensitivity: options.sensitivity.to_string(),
         capture_session_id: Some(options.session_id.to_string()),
-        device_type: DeviceType::Goose,
+        // Detect the generation from the frame header (Gen4 = 4-byte/crc8,
+        // Gen5 = 8-byte/crc16) instead of assuming Goose, so WHOOP 4.0 sqlite
+        // captures decode with the correct device type. Falls back to Goose for
+        // unrecognizable headers, preserving prior behavior for Gen5 captures.
+        device_type: decode_hex_with_whitespace(&row.value_hex)
+            .ok()
+            .and_then(|bytes| detect_device_type_from_frame(&bytes))
+            .unwrap_or(DeviceType::Goose),
     }
 }
 
@@ -1394,7 +1401,7 @@ fn parsed_payload_kind(payload: &crate::protocol::ParsedPayload) -> String {
 fn expected_device_type(expected: &serde_json::Value) -> Option<DeviceType> {
     let value = expected.get("device_type")?.as_str()?;
     match value {
-        "GEN_4" => Some(DeviceType::Gen4),
+        "GEN4" | "GEN_4" => Some(DeviceType::Gen4),
         "MAVERICK" => Some(DeviceType::Maverick),
         "PUFFIN" => Some(DeviceType::Puffin),
         "GOOSE" => Some(DeviceType::Goose),

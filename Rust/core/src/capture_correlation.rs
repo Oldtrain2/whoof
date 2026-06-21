@@ -617,7 +617,7 @@ fn report_next_capture_actions(
 fn expected_device_type(expected: &serde_json::Value) -> Option<DeviceType> {
     let value = expected.get("device_type")?.as_str()?;
     match value {
-        "GEN_4" => Some(DeviceType::Gen4),
+        "GEN4" | "GEN_4" => Some(DeviceType::Gen4),
         "MAVERICK" => Some(DeviceType::Maverick),
         "PUFFIN" => Some(DeviceType::Puffin),
         "GOOSE" => Some(DeviceType::Goose),
@@ -672,6 +672,7 @@ fn body_summary_kind(summary: &DataPacketBodySummary) -> &'static str {
         DataPacketBodySummary::RawMotionK10 { .. } => "raw_motion_k10",
         DataPacketBodySummary::RawMotionK21 { .. } => "raw_motion_k21",
         DataPacketBodySummary::Gen4History { .. } => "gen4_history",
+        DataPacketBodySummary::Gen4Motion { .. } => "gen4_motion",
     }
 }
 

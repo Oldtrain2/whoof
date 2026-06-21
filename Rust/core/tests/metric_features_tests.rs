@@ -15,10 +15,129 @@ use whoof_core::{
     },
     protocol::{
         DeviceType, PACKET_TYPE_EVENT, PACKET_TYPE_HISTORICAL_DATA, PACKET_TYPE_REALTIME_RAW_DATA,
-        build_v5_payload_frame,
+        build_gen4_payload_frame, build_v5_payload_frame,
     },
     store::GooseStore,
 };
+
+/// Build a WHOOP 4.0 (Gen4) generic history frame carrying a heart rate at
+/// payload[17], an RR count at [18], and up to four RR intervals from [19].
+fn gen4_history_frame_hex(bpm: u8, rr: &[u16]) -> String {
+    let mut payload = vec![0u8; 27];
+    payload[0] = PACKET_TYPE_HISTORICAL_DATA;
+    payload[1] = 9; // generic (non-sensor) history K value
+    payload[2] = 1;
+    payload[17] = bpm;
+    payload[18] = rr.len() as u8;
+    for (index, value) in rr.iter().enumerate().take(4) {
+        let offset = 19 + index * 2;
+        payload[offset] = (value & 0xff) as u8;
+        payload[offset + 1] = (value >> 8) as u8;
+    }
+    hex::encode(build_gen4_payload_frame(&payload))
+}
+
+fn import_gen4_history_frame(
+    store: &GooseStore,
+    sensitivity: &str,
+    captured_at: &str,
+    bpm: u8,
+    rr: &[u16],
+) {
+    let frame_hex = gen4_history_frame_hex(bpm, rr);
+    let frame_tag = &frame_hex[..frame_hex.len().min(48)];
+    let frames = vec![CapturedFrameInput {
+        evidence_id: format!("app.gen4.{sensitivity}.{captured_at}.{frame_tag}"),
+        frame_id: Some(format!(
+            "app.gen4.{sensitivity}.{captured_at}.{frame_tag}.frame.0"
+        )),
+        source: "ios.corebluetooth.notification".to_string(),
+        captured_at: captured_at.to_string(),
+        device_model: "WHOOP 4.0".to_string(),
+        frame_hex,
+        sensitivity: sensitivity.to_string(),
+        capture_session_id: None,
+        device_type: DeviceType::Gen4,
+    }];
+    let report = import_captured_frame_batch(
+        store,
+        &frames,
+        CapturedFrameBatchOptions {
+            parser_version: "goose-core/test",
+        },
+    )
+    .unwrap();
+    assert!(report.pass, "{:?}", report.issues);
+}
+
+#[test]
+fn gen4_heart_rate_feature_extraction_promotes_owned_gen4_history() {
+    let store = GooseStore::open_in_memory().unwrap();
+    import_gen4_history_frame(
+        &store,
+        "user-owned-live-notification",
+        "2026-05-27T13:00:00Z",
+        62,
+        &[837],
+    );
+
+    let report = run_heart_rate_feature_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-27T00:00:00Z",
+        "2026-05-28T00:00:00Z",
+        HeartRateFeatureOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+        },
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    assert_eq!(report.feature_count, 1);
+    assert_eq!(report.trusted_feature_count, 1);
+    let feature = &report.features[0];
+    assert_eq!(feature.body_summary_kind, "gen4_history");
+    assert_eq!(feature.heart_rate_bpm, 62.0);
+    assert!(feature.trusted_metric_input);
+}
+
+#[test]
+fn gen4_hrv_feature_extraction_builds_rmssd_from_gen4_rr_intervals() {
+    let store = GooseStore::open_in_memory().unwrap();
+    import_gen4_history_frame(
+        &store,
+        "user-owned-live-notification",
+        "2026-05-27T04:00:00Z",
+        60,
+        &[800, 810, 790, 800],
+    );
+
+    let report = run_hrv_feature_report_for_store(
+        &store,
+        "test-db",
+        "2026-05-27T00:00:00Z",
+        "2026-05-28T00:00:00Z",
+        HrvFeatureOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+            min_rr_intervals_to_compute: 2,
+            baseline_min_days: 3,
+            require_baseline: false,
+        },
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    assert_eq!(report.feature_count, 1);
+    assert_eq!(report.trusted_feature_count, 1);
+    let feature = &report.features[0];
+    assert_eq!(feature.body_summary_kind, "gen4_history");
+    assert_eq!(feature.source_signal, "gen4_history_rr_interval_ms");
+    assert_eq!(feature.rr_intervals_ms, vec![800.0, 810.0, 790.0, 800.0]);
+    let output = report.score_result.unwrap().output.unwrap();
+    assert_close(output.rmssd_ms, 14.142135623730951);
+}
 
 #[test]
 fn motion_feature_extraction_normalizes_owned_k10_raw_amplitude() {

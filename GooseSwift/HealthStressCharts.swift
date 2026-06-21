@@ -285,13 +285,31 @@ struct StressTimelineChart: View {
 }
 
 struct HeartRateZonesSection: View {
+  /// Minutes spent in each heart-rate zone keyed by zone id (1...5). Empty when
+  /// no activity session reported zone durations for the day, in which case the
+  /// bars render at zero rather than showing fabricated values.
+  var zoneMinutes: [Int: Double] = [:]
+
+  private static let zoneTints: [Int: Color] = [
+    5: .red, 4: .orange, 3: .yellow, 2: .green, 1: .teal,
+  ]
+
+  private var maxMinutes: Double {
+    max(zoneMinutes.values.max() ?? 0, 1)
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HealthSectionTitle("Heart Rate Zones")
-      BreakdownRow(label: "Zone 5", value: "0 min", tint: .red, width: 0)
-      BreakdownRow(label: "Zone 4", value: "0 min", tint: .orange, width: 0)
-      BreakdownRow(label: "Zone 3", value: "0 min", tint: .yellow, width: 0)
-      BreakdownRow(label: "Zone 2", value: "0 min", tint: .green, width: 0)
+      ForEach(Array((1...5).reversed()), id: \.self) { zoneID in
+        let minutes = zoneMinutes[zoneID] ?? 0
+        BreakdownRow(
+          label: "Zone \(zoneID)",
+          value: "\(Int(minutes.rounded())) min",
+          tint: Self.zoneTints[zoneID] ?? .gray,
+          width: CGFloat(min(max(minutes / maxMinutes, 0), 1))
+        )
+      }
     }
     .padding(14)
     .healthCardSurface()

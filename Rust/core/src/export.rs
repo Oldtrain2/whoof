@@ -2458,6 +2458,36 @@ fn export_sensor_samples(
                     ));
                 }
             }
+            DataPacketBodySummary::Gen4Motion { bpm, axes, warnings } => {
+                if let Some(value) = bpm.filter(|value| *value > 0) {
+                    rows.push(sensor_u8_sample(
+                        &context,
+                        "gen4_motion_heart_rate",
+                        "gen4_heart_rate",
+                        0,
+                        17,
+                        value,
+                        "bpm",
+                        vec!["gen4_motion".to_string()],
+                    ));
+                }
+                for axis in axes {
+                    // Gen4 IMU samples are big-endian; push_i16_sensor_series
+                    // re-reads little-endian, so emit the precomputed summary
+                    // preview values directly rather than re-reading the payload.
+                    for (sample_index, value) in axis.preview.iter().enumerate() {
+                        rows.push(sensor_i16_sample(
+                            &context,
+                            "gen4_motion_imu_big_endian",
+                            &axis.name,
+                            sample_index,
+                            axis.offset + sample_index * 2,
+                            *value,
+                            warnings.clone(),
+                        ));
+                    }
+                }
+            }
         }
     }
     Ok(rows)

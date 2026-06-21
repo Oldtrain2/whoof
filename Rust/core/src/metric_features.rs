@@ -1001,6 +1001,9 @@ struct MotionPlan {
     device_timestamp_seconds: Option<u32>,
     device_timestamp_subseconds: Option<u16>,
     summary_warnings: Vec<String>,
+    /// Gen4 IMU samples are stored big-endian, so the motion accumulator must
+    /// re-read the payload big-endian for those frames (Gen5 streams are LE).
+    big_endian: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1049,11 +1052,21 @@ struct RespiratoryRatePlan {
 }
 
 #[derive(Debug, Clone)]
-struct HrvPlan {
-    samples: I16SeriesSummary,
-    flags: Option<u16>,
-    sample_count: Option<u16>,
-    summary_warnings: Vec<String>,
+enum HrvPlan {
+    /// Gen5 R17 optical/labrador-filtered series: RR intervals are recovered by
+    /// reading the i16 sample series out of the payload and range-filtering.
+    R17 {
+        samples: I16SeriesSummary,
+        flags: Option<u16>,
+        sample_count: Option<u16>,
+        summary_warnings: Vec<String>,
+    },
+    /// Gen4 history: RR intervals are already decoded as discrete u16 millisecond
+    /// values, so they bypass the i16 byte-read path entirely.
+    Gen4Direct {
+        rr_intervals_ms: Vec<u16>,
+        summary_warnings: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1097,7 +1110,7 @@ pub fn run_motion_feature_report(
     options: MotionFeatureOptions,
 ) -> GooseResult<MotionFeatureReport> {
     let trusted_frames =
-        trusted_frames_for_summary_kinds(correlation, &["raw_motion_k10", "raw_motion_k21"]);
+        trusted_frames_for_summary_kinds(correlation, &["raw_motion_k10", "raw_motion_k21", "gen4_motion"]);
     let mut issues = Vec::new();
     if options.require_trusted_evidence && !correlation.pass {
         issues.push("capture_correlation_report_not_passed".to_string());
@@ -1167,8 +1180,10 @@ pub fn run_heart_rate_feature_report(
     correlation: &CaptureCorrelationReport,
     options: HeartRateFeatureOptions,
 ) -> GooseResult<HeartRateFeatureReport> {
-    let trusted_frames =
-        trusted_frames_for_summary_kinds(correlation, &["normal_history", "raw_motion_k10"]);
+    let trusted_frames = trusted_frames_for_summary_kinds(
+        correlation,
+        &["normal_history", "raw_motion_k10", "gen4_history", "gen4_motion"],
+    );
     let mut issues = Vec::new();
     if options.require_trusted_evidence && !correlation.pass {
         issues.push("capture_correlation_report_not_passed".to_string());
@@ -1764,8 +1779,10 @@ pub fn run_hrv_feature_report(
     end: &str,
     options: HrvFeatureOptions,
 ) -> GooseResult<HrvFeatureReport> {
-    let trusted_frames =
-        trusted_frames_for_summary_kinds(correlation, &["r17_optical_or_labrador_filtered"]);
+    let trusted_frames = trusted_frames_for_summary_kinds(
+        correlation,
+        &["r17_optical_or_labrador_filtered", "gen4_history"],
+    );
     let mut issues = Vec::new();
     if options.require_trusted_evidence && !correlation.pass {
         issues.push("capture_correlation_report_not_passed".to_string());
@@ -3985,6 +4002,7 @@ fn motion_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<MotionPlan>
             device_timestamp_seconds: timestamp_seconds,
             device_timestamp_subseconds: timestamp_subseconds,
             summary_warnings: warnings,
+            big_endian: false,
         }),
         DataPacketBodySummary::RawMotionK21 { axes, warnings, .. } => Some(MotionPlan {
             body_summary_kind: "raw_motion_k21",
@@ -3993,6 +4011,20 @@ fn motion_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<MotionPlan>
             device_timestamp_seconds: timestamp_seconds,
             device_timestamp_subseconds: timestamp_subseconds,
             summary_warnings: warnings,
+            big_endian: false,
+        }),
+        DataPacketBodySummary::Gen4Motion {
+            bpm,
+            axes,
+            warnings,
+        } => Some(MotionPlan {
+            body_summary_kind: "gen4_motion",
+            axes,
+            heart_rate_bpm: bpm,
+            device_timestamp_seconds: timestamp_seconds,
+            device_timestamp_subseconds: timestamp_subseconds,
+            summary_warnings: warnings,
+            big_endian: true,
         }),
         _ => None,
     })
@@ -4033,6 +4065,26 @@ fn heart_rate_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<HeartRa
             quality_flag: "preliminary_raw_motion_k10_heart_rate",
             marker_offset: 0,
             marker_value: heart_rate,
+            device_timestamp_seconds: timestamp_seconds,
+            device_timestamp_subseconds: timestamp_subseconds,
+        }),
+        DataPacketBodySummary::Gen4History { bpm: Some(bpm), .. } => Some(HeartRatePlan {
+            body_summary_kind: "gen4_history",
+            source_signal: "gen4_history_heart_rate",
+            quality_flag: "gen4_history_heart_rate",
+            // Gen4 packs the heart rate as a decoded value at payload[17]; the
+            // marker_offset is informational here.
+            marker_offset: 17,
+            marker_value: bpm,
+            device_timestamp_seconds: timestamp_seconds,
+            device_timestamp_subseconds: timestamp_subseconds,
+        }),
+        DataPacketBodySummary::Gen4Motion { bpm: Some(bpm), .. } => Some(HeartRatePlan {
+            body_summary_kind: "gen4_motion",
+            source_signal: "gen4_motion_heart_rate",
+            quality_flag: "gen4_motion_heart_rate",
+            marker_offset: 17,
+            marker_value: bpm,
             device_timestamp_seconds: timestamp_seconds,
             device_timestamp_subseconds: timestamp_subseconds,
         }),
@@ -4155,26 +4207,36 @@ fn hrv_plan_from_row(row: &DecodedFrameRow) -> GooseResult<Option<HrvPlan>> {
             ))
         })?;
     let Some(ParsedPayload::DataPacket {
-        body_summary:
-            Some(DataPacketBodySummary::R17OpticalOrLabradorFiltered {
-                flags,
-                sample_count,
-                samples: Some(samples),
-                warnings,
-                ..
-            }),
+        body_summary: Some(body_summary),
         ..
     }) = parsed_payload
     else {
         return Ok(None);
     };
 
-    Ok(Some(HrvPlan {
-        samples,
-        flags,
-        sample_count,
-        summary_warnings: warnings,
-    }))
+    Ok(match body_summary {
+        DataPacketBodySummary::R17OpticalOrLabradorFiltered {
+            flags,
+            sample_count,
+            samples: Some(samples),
+            warnings,
+            ..
+        } => Some(HrvPlan::R17 {
+            samples,
+            flags,
+            sample_count,
+            summary_warnings: warnings,
+        }),
+        DataPacketBodySummary::Gen4History {
+            rr_intervals_ms,
+            warnings,
+            ..
+        } if !rr_intervals_ms.is_empty() => Some(HrvPlan::Gen4Direct {
+            rr_intervals_ms,
+            summary_warnings: warnings,
+        }),
+        _ => None,
+    })
 }
 
 fn motion_feature_from_plan(
@@ -4198,7 +4260,7 @@ fn motion_feature_from_plan(
     let mut accumulator = MotionAccumulator::default();
     let mut axis_count = 0;
     for axis in &plan.axes {
-        let axis_accumulator = accumulate_axis(payload, axis, &mut quality_flags);
+        let axis_accumulator = accumulate_axis(payload, axis, plan.big_endian, &mut quality_flags);
         if axis_accumulator.sample_count > 0 {
             axis_count += 1;
             accumulator.abs_sum += axis_accumulator.abs_sum;
@@ -4267,76 +4329,137 @@ fn hrv_feature_from_plan(
     trusted_frames: &BTreeMap<String, bool>,
 ) -> GooseResult<Option<HrvFeature>> {
     let mut quality_flags = BTreeSet::new();
-    quality_flags.insert("preliminary_r17_i16_rr_interval_candidate".to_string());
-    quality_flags.insert("rr_interval_scale_unvalidated".to_string());
     for warning in parse_warnings(row)? {
         quality_flags.insert(warning);
     }
-    for warning in &plan.summary_warnings {
-        quality_flags.insert(warning.clone());
-    }
-
-    let mut rr_intervals_ms = Vec::new();
-    let mut rejected_sample_count = 0usize;
-    for index in 0..plan.samples.parsed_count {
-        let offset = plan.samples.offset + index * 2;
-        let Some(value) = read_i16_le(payload, offset) else {
-            quality_flags.insert("r17_sample_read_failed".to_string());
-            rejected_sample_count += 1;
-            continue;
-        };
-        if (300..=2000).contains(&value) {
-            rr_intervals_ms.push(f64::from(value));
-        } else {
-            rejected_sample_count += 1;
-        }
-    }
-
-    if rr_intervals_ms.is_empty() {
-        return Ok(None);
-    }
-    if rejected_sample_count > 0 {
-        quality_flags.insert("rr_interval_samples_outside_plausible_range".to_string());
-    }
-    if plan
-        .sample_count
-        .is_some_and(|sample_count| sample_count as usize != plan.samples.parsed_count)
-    {
-        quality_flags.insert("r17_sample_count_mismatch".to_string());
-    }
-
     let trusted_metric_input = trusted_frames
         .get(&row.frame_id)
         .copied()
         .unwrap_or_default();
 
-    Ok(Some(HrvFeature {
-        metric_input_id: format!("{}.rr_intervals", row.frame_id),
-        frame_id: row.frame_id.clone(),
-        evidence_id: row.evidence_id.clone(),
-        captured_at: row.captured_at.clone(),
-        body_summary_kind: "r17_optical_or_labrador_filtered".to_string(),
-        source_signal: "r17_optical_or_labrador_filtered_i16_candidate".to_string(),
-        scale_basis: "preliminary_plausible_i16_as_rr_interval_ms".to_string(),
-        rr_intervals_ms,
-        raw_sample_count: plan.samples.parsed_count,
-        plausible_sample_count: plan.samples.parsed_count - rejected_sample_count,
-        rejected_sample_count,
-        trusted_metric_input,
-        quality_flags: quality_flags.into_iter().collect(),
-        provenance: json!({
-            "input_source": "decoded_frame",
-            "frame_id": row.frame_id,
-            "evidence_id": row.evidence_id,
-            "parser_version": row.parser_version,
-            "body_summary_kind": "r17_optical_or_labrador_filtered",
-            "sample_offset": plan.samples.offset,
-            "reported_sample_count": plan.sample_count,
-            "flags": plan.flags,
-            "promotion_policy": "requires_owned_capture_correlation",
-            "scale_basis": "preliminary_plausible_i16_as_rr_interval_ms",
-        }),
-    }))
+    match plan {
+        HrvPlan::R17 {
+            samples,
+            flags,
+            sample_count,
+            summary_warnings,
+        } => {
+            quality_flags.insert("preliminary_r17_i16_rr_interval_candidate".to_string());
+            quality_flags.insert("rr_interval_scale_unvalidated".to_string());
+            for warning in &summary_warnings {
+                quality_flags.insert(warning.clone());
+            }
+
+            let mut rr_intervals_ms = Vec::new();
+            let mut rejected_sample_count = 0usize;
+            for index in 0..samples.parsed_count {
+                let offset = samples.offset + index * 2;
+                let Some(value) = read_i16_le(payload, offset) else {
+                    quality_flags.insert("r17_sample_read_failed".to_string());
+                    rejected_sample_count += 1;
+                    continue;
+                };
+                if (300..=2000).contains(&value) {
+                    rr_intervals_ms.push(f64::from(value));
+                } else {
+                    rejected_sample_count += 1;
+                }
+            }
+
+            if rr_intervals_ms.is_empty() {
+                return Ok(None);
+            }
+            if rejected_sample_count > 0 {
+                quality_flags.insert("rr_interval_samples_outside_plausible_range".to_string());
+            }
+            if sample_count.is_some_and(|count| count as usize != samples.parsed_count) {
+                quality_flags.insert("r17_sample_count_mismatch".to_string());
+            }
+
+            Ok(Some(HrvFeature {
+                metric_input_id: format!("{}.rr_intervals", row.frame_id),
+                frame_id: row.frame_id.clone(),
+                evidence_id: row.evidence_id.clone(),
+                captured_at: row.captured_at.clone(),
+                body_summary_kind: "r17_optical_or_labrador_filtered".to_string(),
+                source_signal: "r17_optical_or_labrador_filtered_i16_candidate".to_string(),
+                scale_basis: "preliminary_plausible_i16_as_rr_interval_ms".to_string(),
+                rr_intervals_ms,
+                raw_sample_count: samples.parsed_count,
+                plausible_sample_count: samples.parsed_count - rejected_sample_count,
+                rejected_sample_count,
+                trusted_metric_input,
+                quality_flags: quality_flags.into_iter().collect(),
+                provenance: json!({
+                    "input_source": "decoded_frame",
+                    "frame_id": row.frame_id,
+                    "evidence_id": row.evidence_id,
+                    "parser_version": row.parser_version,
+                    "body_summary_kind": "r17_optical_or_labrador_filtered",
+                    "sample_offset": samples.offset,
+                    "reported_sample_count": sample_count,
+                    "flags": flags,
+                    "promotion_policy": "requires_owned_capture_correlation",
+                    "scale_basis": "preliminary_plausible_i16_as_rr_interval_ms",
+                }),
+            }))
+        }
+        HrvPlan::Gen4Direct {
+            rr_intervals_ms: raw_rr,
+            summary_warnings,
+        } => {
+            // Gen4 RR intervals arrive already decoded as discrete millisecond
+            // values, so they need no byte read or i16 reinterpretation — only
+            // the same plausibility range filter the R17 path applies.
+            quality_flags.insert("gen4_history_rr_interval".to_string());
+            for warning in &summary_warnings {
+                quality_flags.insert(warning.clone());
+            }
+
+            let raw_sample_count = raw_rr.len();
+            let mut rr_intervals_ms = Vec::new();
+            let mut rejected_sample_count = 0usize;
+            for value in raw_rr {
+                if (300..=2000).contains(&value) {
+                    rr_intervals_ms.push(f64::from(value));
+                } else {
+                    rejected_sample_count += 1;
+                }
+            }
+
+            if rr_intervals_ms.is_empty() {
+                return Ok(None);
+            }
+            if rejected_sample_count > 0 {
+                quality_flags.insert("rr_interval_samples_outside_plausible_range".to_string());
+            }
+
+            Ok(Some(HrvFeature {
+                metric_input_id: format!("{}.rr_intervals", row.frame_id),
+                frame_id: row.frame_id.clone(),
+                evidence_id: row.evidence_id.clone(),
+                captured_at: row.captured_at.clone(),
+                body_summary_kind: "gen4_history".to_string(),
+                source_signal: "gen4_history_rr_interval_ms".to_string(),
+                scale_basis: "gen4_decoded_rr_interval_ms".to_string(),
+                rr_intervals_ms,
+                raw_sample_count,
+                plausible_sample_count: raw_sample_count - rejected_sample_count,
+                rejected_sample_count,
+                trusted_metric_input,
+                quality_flags: quality_flags.into_iter().collect(),
+                provenance: json!({
+                    "input_source": "decoded_frame",
+                    "frame_id": row.frame_id,
+                    "evidence_id": row.evidence_id,
+                    "parser_version": row.parser_version,
+                    "body_summary_kind": "gen4_history",
+                    "promotion_policy": "requires_owned_capture_correlation",
+                    "scale_basis": "gen4_decoded_rr_interval_ms",
+                }),
+            }))
+        }
+    }
 }
 
 fn heart_rate_feature_from_plan(
@@ -6170,12 +6293,14 @@ fn heart_rate_zone_minutes(
 fn accumulate_axis(
     payload: &[u8],
     axis: &I16SeriesSummary,
+    big_endian: bool,
     quality_flags: &mut BTreeSet<String>,
 ) -> MotionAccumulator {
     let mut accumulator = MotionAccumulator::default();
     for index in 0..axis.parsed_count {
         let sample_offset = axis.offset + index * 2;
-        let Some(value) = read_i16_le(payload, sample_offset) else {
+        let read = if big_endian { read_i16_be } else { read_i16_le };
+        let Some(value) = read(payload, sample_offset) else {
             quality_flags.insert(format!("{}_sample_missing", axis.name));
             break;
         };
@@ -6228,6 +6353,13 @@ fn parse_warnings(row: &DecodedFrameRow) -> GooseResult<Vec<String>> {
 
 fn read_i16_le(bytes: &[u8], offset: usize) -> Option<i16> {
     Some(i16::from_le_bytes([
+        *bytes.get(offset)?,
+        *bytes.get(offset + 1)?,
+    ]))
+}
+
+fn read_i16_be(bytes: &[u8], offset: usize) -> Option<i16> {
+    Some(i16::from_be_bytes([
         *bytes.get(offset)?,
         *bytes.get(offset + 1)?,
     ]))

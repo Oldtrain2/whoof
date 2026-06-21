@@ -53,7 +53,9 @@ struct HealthMetricFamilyView: View {
         }
 
         if route == .strain {
-          HeartRateZonesSection()
+          HeartRateZonesSection(
+            zoneMinutes: store.heartRateZoneDurationMinutes(for: selectedDateBinding.wrappedValue)
+          )
         }
 
         if route == .sleep {
@@ -481,8 +483,9 @@ struct StrainV2OverviewPage: View {
               palette: palette,
               scoreText: store.strainScoreDisplayText(for: selectedDate),
               targetText: store.strainTargetDisplayText(),
-              durationText: store.strainDurationDisplayText(),
-              energyText: store.strainEnergyDisplayText(for: selectedDate)
+              durationText: store.strainDurationDisplayText(for: selectedDate),
+              energyText: store.strainEnergyDisplayText(for: selectedDate),
+              zoneMinutes: store.heartRateZoneDurationMinutes(for: selectedDate)
             )
 
             SleepV2SectionHeader(title: "Activities", palette: palette)
@@ -685,6 +688,7 @@ struct StrainV2DailyLoadCard: View {
   let targetText: String
   let durationText: String
   let energyText: String
+  var zoneMinutes: [Int: Double] = [:]
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -715,7 +719,7 @@ struct StrainV2DailyLoadCard: View {
         StrainV2LoadTile(palette: palette, systemImage: "flame.fill", title: "Energy", value: energyText)
       }
 
-      StrainV2ZoneMeter(palette: palette)
+      StrainV2ZoneMeter(palette: palette, zoneMinutes: zoneMinutes)
     }
     .padding(20)
     .background(
@@ -765,6 +769,21 @@ struct StrainV2LoadTile: View {
 
 struct StrainV2ZoneMeter: View {
   let palette: SleepV2Palette
+  /// Minutes per heart-rate zone (1...5). Empty renders the zeroed track.
+  var zoneMinutes: [Int: Double] = [:]
+
+  private var totalMinutes: Double { zoneMinutes.values.reduce(0, +) }
+  private var maxMinutes: Double { max(zoneMinutes.values.max() ?? 0, 1) }
+
+  private static func zoneColor(_ zoneID: Int) -> Color {
+    switch zoneID {
+    case 5: return .red
+    case 4: return .orange
+    case 3: return .yellow
+    case 2: return .green
+    default: return .teal
+    }
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -773,26 +792,35 @@ struct StrainV2ZoneMeter: View {
           .font(.subheadline.weight(.semibold))
           .foregroundStyle(palette.text)
         Spacer()
-        Text("0 min")
+        Text("\(Int(totalMinutes.rounded())) min")
           .font(.subheadline.weight(.semibold))
           .fontDesign(.rounded)
           .foregroundStyle(palette.secondaryText)
       }
 
       HStack(spacing: 5) {
-        ForEach(0..<5, id: \.self) { _ in
-          Capsule()
-            .fill(palette.separator.opacity(0.75))
-            .frame(height: 9)
+        ForEach(1...5, id: \.self) { zoneID in
+          let fraction = min(max((zoneMinutes[zoneID] ?? 0) / maxMinutes, 0), 1)
+          ZStack {
+            Capsule().fill(palette.separator.opacity(0.75))
+            Capsule().fill(Self.zoneColor(zoneID)).opacity(fraction)
+          }
+          .frame(height: 9)
         }
       }
 
       HStack {
-        ForEach(["Z1", "Z2", "Z3", "Z4", "Z5"], id: \.self) { zone in
-          Text(zone)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(palette.mutedText)
-            .frame(maxWidth: .infinity)
+        ForEach(1...5, id: \.self) { zoneID in
+          VStack(spacing: 2) {
+            Text("Z\(zoneID)")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(palette.mutedText)
+            Text("\(Int((zoneMinutes[zoneID] ?? 0).rounded()))m")
+              .font(.caption2.weight(.semibold))
+              .fontDesign(.rounded)
+              .foregroundStyle(palette.secondaryText)
+          }
+          .frame(maxWidth: .infinity)
         }
       }
     }
