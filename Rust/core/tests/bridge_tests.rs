@@ -8524,6 +8524,36 @@ fn bridge_hrv_from_rr_empty_is_unavailable() {
     assert_eq!(response.result.unwrap()["available"], false);
 }
 
+#[test]
+fn bridge_gen4_skin_temp_trend_empty_is_unavailable() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = tempdir.path().join("goose.sqlite");
+    let _ = GooseStore::open(&db).unwrap();
+    let response = request(serde_json::json!({
+        "schema": "goose.bridge.request.v1",
+        "request_id": "skin-temp-empty",
+        "method": "metrics.gen4_skin_temp_trend",
+        "args": { "database_path": db.display().to_string() }
+    }));
+    assert!(response.ok, "{:?}", response.error);
+    assert_eq!(response.result.unwrap()["available"], false);
+}
+
+#[test]
+fn bridge_hrv_advanced_empty_is_unavailable() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = tempdir.path().join("goose.sqlite");
+    let _ = GooseStore::open(&db).unwrap();
+    let response = request(serde_json::json!({
+        "schema": "goose.bridge.request.v1",
+        "request_id": "hrv-advanced-empty",
+        "method": "metrics.hrv_advanced",
+        "args": { "database_path": db.display().to_string(), "start": "0000", "end": "9999" }
+    }));
+    assert!(response.ok, "{:?}", response.error);
+    assert_eq!(response.result.unwrap()["available"], false);
+}
+
 fn seed_recovery_calibration(db: &std::path::Path) {
     let store = GooseStore::open(db).unwrap();
     for definition in built_in_algorithm_definitions() {
