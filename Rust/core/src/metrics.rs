@@ -1720,52 +1720,71 @@ pub fn goose_recovery_v0(input: &RecoveryInput) -> AlgorithmRunResult<RecoverySc
         let respiratory_score = clamp_0_100(
             100.0 - (input.respiratory_rate_rpm - input.respiratory_rate_baseline_rpm).abs() * 20.0,
         );
-        let temperature_score = clamp_0_100(100.0 - input.skin_temp_delta_c.abs() * 50.0);
         let strain_readiness_score = clamp_0_100(100.0 - input.prior_strain_0_to_21 / 21.0 * 60.0);
 
-        let components = vec![
+        // WHOOP 4.0 has no client-side skin temperature, signalled by a
+        // non-finite skin_temp_delta_c. Drop the 0.10 temperature component and
+        // rescale the remaining weights so they still sum to 1.0 (so a Gen4
+        // recovery score is comparable to a Gen5 one rather than capped at 90).
+        let temperature_available = input.skin_temp_delta_c.is_finite();
+        if !temperature_available {
+            quality_flags.push("temperature_component_unavailable".to_string());
+        }
+        let weight_scale = if temperature_available { 1.0 } else { 1.0 / 0.90 };
+
+        let mut components = vec![
             score_component(
                 "hrv",
                 input.hrv_rmssd_ms,
                 "ms_rmssd",
                 hrv_score,
-                0.35,
+                0.35 * weight_scale,
                 100.0,
             ),
-            score_component("rhr", input.resting_hr_bpm, "bpm", rhr_score, 0.20, 100.0),
+            score_component(
+                "rhr",
+                input.resting_hr_bpm,
+                "bpm",
+                rhr_score,
+                0.20 * weight_scale,
+                100.0,
+            ),
             score_component(
                 "respiratory",
                 input.respiratory_rate_rpm,
                 "breaths_per_minute",
                 respiratory_score,
-                0.10,
+                0.10 * weight_scale,
                 100.0,
             ),
-            score_component(
+        ];
+        if temperature_available {
+            let temperature_score = clamp_0_100(100.0 - input.skin_temp_delta_c.abs() * 50.0);
+            components.push(score_component(
                 "temperature",
                 input.skin_temp_delta_c,
                 "celsius_delta",
                 temperature_score,
                 0.10,
                 100.0,
-            ),
-            score_component(
-                "sleep",
-                input.sleep_score_0_to_100,
-                "score_0_to_100",
-                input.sleep_score_0_to_100,
-                0.15,
-                100.0,
-            ),
-            score_component(
-                "prior_strain",
-                input.prior_strain_0_to_21,
-                "score_0_to_21",
-                strain_readiness_score,
-                0.10,
-                100.0,
-            ),
-        ];
+            ));
+        }
+        components.push(score_component(
+            "sleep",
+            input.sleep_score_0_to_100,
+            "score_0_to_100",
+            input.sleep_score_0_to_100,
+            0.15 * weight_scale,
+            100.0,
+        ));
+        components.push(score_component(
+            "prior_strain",
+            input.prior_strain_0_to_21,
+            "score_0_to_21",
+            strain_readiness_score,
+            0.10 * weight_scale,
+            100.0,
+        ));
 
         Some(RecoveryScoreOutput {
             algorithm_id: GOOSE_RECOVERY_V0_ID.to_string(),

@@ -2321,6 +2321,38 @@ fn goose_recovery_v0_computes_hand_derived_interpretable_composite() {
 }
 
 #[test]
+fn goose_recovery_v0_neutralizes_temperature_on_gen4() {
+    // A non-finite skin_temp_delta_c marks the Gen4 case (no client-side skin
+    // temperature): the temperature component is dropped and the remaining
+    // weights rescale to sum to 1.0.
+    let result = goose_recovery_v0(&RecoveryInput {
+        start_time: "2026-05-28T00:00:00Z".to_string(),
+        end_time: "2026-05-28T08:00:00Z".to_string(),
+        hrv_rmssd_ms: 50.0,
+        hrv_baseline_rmssd_ms: 50.0,
+        resting_hr_bpm: 60.0,
+        resting_hr_baseline_bpm: 60.0,
+        respiratory_rate_rpm: 14.0,
+        respiratory_rate_baseline_rpm: 14.0,
+        skin_temp_delta_c: f64::NAN,
+        sleep_score_0_to_100: 80.0,
+        prior_strain_0_to_21: 10.5,
+        input_ids: vec!["gen4.recovery".to_string()],
+    });
+
+    let output = result.output.unwrap();
+    assert_eq!(output.components.len(), 5, "temperature component dropped");
+    assert!(!output.components.iter().any(|c| c.name == "temperature"));
+    assert!(
+        result
+            .quality_flags
+            .contains(&"temperature_component_unavailable".to_string())
+    );
+    // hrv70/rhr70/resp100/sleep80/strain70 reweighted by 1/0.9 -> 75.0.
+    assert_close(output.score_0_to_100, 75.0);
+}
+
+#[test]
 fn goose_recovery_v0_flags_low_sleep_and_high_prior_strain() {
     let result = goose_recovery_v0(&RecoveryInput {
         start_time: "2026-05-28T00:00:00Z".to_string(),
