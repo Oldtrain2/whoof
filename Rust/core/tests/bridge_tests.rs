@@ -8482,6 +8482,48 @@ fn bridge_promotes_gen4_sync_raw_notifications_into_decoded_frames() {
     );
 }
 
+#[test]
+fn bridge_hrv_from_rr_returns_full_live_hrv_set() {
+    // ~2 min of RR around 800ms with a 0.25 Hz (15 rpm) RSA oscillation — the
+    // live-stream path that powers the HRV SD1/SD2, LF/HF, and respiratory cards.
+    let mut rr: Vec<f64> = Vec::new();
+    let mut elapsed_s = 0.0_f64;
+    for _ in 0..170 {
+        let interval = 800.0 + 35.0 * (2.0 * std::f64::consts::PI * 0.25 * elapsed_s).sin();
+        rr.push(interval);
+        elapsed_s += interval / 1000.0;
+    }
+
+    let response = request(serde_json::json!({
+        "schema": "goose.bridge.request.v1",
+        "request_id": "hrv-from-rr-1",
+        "method": "metrics.hrv_from_rr",
+        "args": { "rr_intervals_ms": rr }
+    }));
+    assert!(response.ok, "{:?}", response.error);
+    let result = response.result.unwrap();
+    assert_eq!(result["available"], true);
+    assert!(result["rmssd_ms"].as_f64().unwrap() > 0.0);
+    assert!(result["sd1_ms"].as_f64().unwrap() > 0.0);
+    assert!(result["sd2_ms"].as_f64().unwrap() > 0.0);
+    assert_eq!(result["frequency_available"], true);
+    assert!(result["lf_hf_ratio"].as_f64().unwrap() >= 0.0);
+    assert!(result["respiratory_rate_rpm"].as_f64().unwrap() > 0.0);
+}
+
+#[test]
+fn bridge_hrv_from_rr_empty_is_unavailable() {
+    let empty: Vec<f64> = Vec::new();
+    let response = request(serde_json::json!({
+        "schema": "goose.bridge.request.v1",
+        "request_id": "hrv-from-rr-empty",
+        "method": "metrics.hrv_from_rr",
+        "args": { "rr_intervals_ms": empty }
+    }));
+    assert!(response.ok, "{:?}", response.error);
+    assert_eq!(response.result.unwrap()["available"], false);
+}
+
 fn seed_recovery_calibration(db: &std::path::Path) {
     let store = GooseStore::open(db).unwrap();
     for definition in built_in_algorithm_definitions() {
