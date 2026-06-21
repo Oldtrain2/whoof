@@ -64,6 +64,10 @@ extension HealthDataStore {
       return hrvAdvancedHealthMonitorSnapshot(base: snapshot, field: .sd2)
     case "autonomic-balance":
       return hrvAdvancedHealthMonitorSnapshot(base: snapshot, field: .lfHfRatio)
+    case "mean-hr-today":
+      return liveHeartRateStatSnapshot(base: snapshot, stat: .mean)
+    case "max-hr-today":
+      return liveHeartRateStatSnapshot(base: snapshot, stat: .max)
     case "oxygen-saturation":
       if let stored = dailyRecoveryMetricSnapshot(
         base: snapshot,
@@ -596,6 +600,64 @@ extension HealthDataStore {
       return live
     }
     return synced
+  }
+
+  enum LiveHeartRateStat {
+    case mean
+    case max
+  }
+
+  /// Mean / max heart rate over today's real band samples. Works from the live
+  /// BPM stream (no RR or sync needed). Real-data-only: needs >=6 samples today.
+  func liveHeartRateStatSnapshot(
+    base snapshot: HealthMetricSnapshot,
+    stat: LiveHeartRateStat
+  ) -> HealthMetricSnapshot {
+    let bpms = heartRateSeriesStore
+      .samples(forDayContaining: Date())
+      .map { $0.bpm }
+      .filter { (20...240).contains($0) }
+    guard bpms.count >= 6 else {
+      return replacingHealthMonitorSnapshot(
+        snapshot,
+        value: "--",
+        unit: "bpm",
+        status: "Unavailable",
+        freshness: bpms.isEmpty ? "No HR samples today" : "\(bpms.count) samples today",
+        provenance: snapshot.provenance,
+        source: .unavailable("requires today's heart-rate samples"),
+        trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+      )
+    }
+    let value: Double
+    switch stat {
+    case .mean:
+      value = Double(bpms.reduce(0, +)) / Double(bpms.count)
+    case .max:
+      value = Double(bpms.max() ?? 0)
+    }
+    guard let text = Self.numberText(value, fractionDigits: 0) else {
+      return replacingHealthMonitorSnapshot(
+        snapshot,
+        value: "--",
+        unit: "bpm",
+        status: "Unavailable",
+        freshness: "\(bpms.count) samples today",
+        provenance: snapshot.provenance,
+        source: .unavailable("requires today's heart-rate samples"),
+        trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+      )
+    }
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: text,
+      unit: "bpm",
+      status: "Local",
+      freshness: "\(bpms.count) samples today",
+      provenance: snapshot.provenance,
+      source: .localEstimate("today's band HR samples"),
+      trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+    )
   }
 
   func liveHrvRestingSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot? {
