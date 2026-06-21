@@ -83,6 +83,7 @@ struct MoreAboutView: View {
     List {
       Section("Versions") {
         MoreInfoRow(title: "App Version", value: appVersion, systemImage: "app", status: .ready)
+        MoreInfoRow(title: "Build", value: BuildStamp.summary, systemImage: "hammer", status: .ready)
         MoreInfoRow(title: "Rust Core", value: store.coreVersionStatus, systemImage: "shippingbox", status: store.coreVersionStatus.hasPrefix("Rust core") ? .ready : .pending)
         MoreInfoRow(title: "Schema", value: store.schemaVersion, systemImage: "number", status: store.schemaVersion == "Unknown" ? .pending : .ready)
       }

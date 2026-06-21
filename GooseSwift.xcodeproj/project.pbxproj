@@ -104,6 +104,7 @@
 			A10000000000000000000013 /* CoachView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* CoachView.swift */; };
 			A10000000000000000000015 /* HealthKitSleepImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* HealthKitSleepImporter.swift */; };
 			A1000000000000000000F001 /* HealthKitMetricExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000F001 /* HealthKitMetricExporter.swift */; };
+			A1000000000000000000F002 /* BuildStamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000F002 /* BuildStamp.swift */; };
 			A10000000000000000000019 /* OnboardingPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* OnboardingPersistence.swift */; };
 			A1000000000000000000001A /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* MoreView.swift */; };
 			D10000000000000000000001 /* MoreRouteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* MoreRouteModels.swift */; };
@@ -252,6 +253,7 @@
 		A20000000000000000000018 /* CoachView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachView.swift; sourceTree = "<group>"; };
 			A2000000000000000000001B /* HealthKitSleepImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitSleepImporter.swift; sourceTree = "<group>"; };
 			A2000000000000000000F001 /* HealthKitMetricExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitMetricExporter.swift; sourceTree = "<group>"; };
+			A2000000000000000000F002 /* BuildStamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildStamp.swift; sourceTree = "<group>"; };
 			A2000000000000000000001F /* OnboardingPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPersistence.swift; sourceTree = "<group>"; };
 			A20000000000000000000020 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
 			D20000000000000000000001 /* MoreRouteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreRouteModels.swift; sourceTree = "<group>"; };
@@ -467,6 +469,7 @@
 					C2000000000000000000000E /* HealthPreviews.swift */,
 						A2000000000000000000001B /* HealthKitSleepImporter.swift */,
 						A2000000000000000000F001 /* HealthKitMetricExporter.swift */,
+						A2000000000000000000F002 /* BuildStamp.swift */,
 						A20000000000000000000025 /* CoachToolDefinitions.swift */,
 					A20000000000000000000021 /* CoachAPIKeyStore.swift */,
 					A2000000000000000000002C /* CoachChatTypes.swift */,
@@ -757,6 +760,7 @@
 					A1000000000000000000002B /* CoachComposer.swift in Sources */,
 					A10000000000000000000015 /* HealthKitSleepImporter.swift in Sources */,
 					A1000000000000000000F001 /* HealthKitMetricExporter.swift in Sources */,
+					A1000000000000000000F002 /* BuildStamp.swift in Sources */,
 					A10000000000000000000019 /* OnboardingPersistence.swift in Sources */,
 					A1000000000000000000001A /* MoreView.swift in Sources */,
 					D10000000000000000000001 /* MoreRouteModels.swift in Sources */,
