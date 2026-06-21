@@ -8,6 +8,29 @@ extension WhoofBLEClient {
     guard isHistoricalSyncing else {
       return
     }
+    // Gen4 frames use a 4-byte header the V5 deframer can't parse, so historical
+    // packets were never counted and the idle-completion timer never armed —
+    // a Gen4 sync then failed with "no historical packet bodies" even though the
+    // frames were mirrored. Count Gen4 frames (or the notification itself if it
+    // won't deframe) and arm idle-completion so the sync finalizes; the bytes are
+    // decoded into metrics by the overnight raw-notification promotion path.
+    if activeCommandGeneration == .gen4 {
+      let frameCount = Self.gen4Frames(in: value).count
+      let increment = max(frameCount, value.isEmpty ? 0 : 1)
+      guard increment > 0 else {
+        return
+      }
+      historicalPacketsReceivedThisSync += increment
+      publishHistoricalPacketCountIfNeeded()
+      scheduleHistoricalIdleCompletion(reason: "gen4_historical_data_idle")
+      notifyHistoricalSyncProgress(
+        status: "syncing",
+        detail: "Received historical packet \(historicalPacketsReceivedThisSync)",
+        terminal: false,
+        failed: false
+      )
+      return
+    }
     for frame in Self.v5Frames(in: value) {
       handleHistoricalSyncFrame(frame, characteristic: characteristic)
     }

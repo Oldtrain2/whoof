@@ -887,6 +887,35 @@ extension WhoofBLEClient {
     return frames
   }
 
+  /// Split a Gen4 (Harvard) BLE buffer into complete frames. Gen4 uses a 4-byte
+  /// header with the declared length at bytes[1..2] (vs the V5 8-byte/bytes[2..3]
+  /// header). Used to count + idle-complete a WHOOP 4.0 history sync, which the
+  /// V5 deframer silently dropped.
+  static func gen4Frames(in data: Data) -> [Data] {
+    var bytes = Array(data)
+    var frames: [Data] = []
+    while let startIndex = bytes.firstIndex(of: 0xaa) {
+      if startIndex > 0 {
+        bytes.removeFirst(startIndex)
+      }
+      guard bytes.count >= 4 else {
+        break
+      }
+      let declaredLength = Int(UInt16(bytes[1]) | UInt16(bytes[2]) << 8)
+      guard declaredLength >= 1 else {
+        bytes.removeFirst()
+        continue
+      }
+      let expectedLength = declaredLength + 4
+      guard bytes.count >= expectedLength else {
+        break
+      }
+      frames.append(Data(bytes[0..<expectedLength]))
+      bytes.removeFirst(expectedLength)
+    }
+    return frames
+  }
+
   static func v5Payload(in frame: Data) -> [UInt8]? {
     let bytes = Array(frame)
     guard bytes.count >= 12 else {
