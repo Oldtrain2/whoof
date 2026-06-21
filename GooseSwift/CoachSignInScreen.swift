@@ -2,9 +2,12 @@ import SwiftUI
 
 struct CoachSignInScreen: View {
   let loginStatus: String
-  let deviceCode: CodexLoginDeviceCode?
   let errorMessage: String?
-  let signIn: () -> Void
+  let saveKey: (String) -> Void
+
+  @State private var apiKeyDraft = ""
+
+  private let consoleURL = URL(string: "https://aistudio.google.com/app/apikey")
 
   var body: some View {
     ScrollView {
@@ -14,32 +17,35 @@ struct CoachSignInScreen: View {
             .font(.title2.weight(.bold))
             .foregroundStyle(.blue)
             .frame(width: 42, height: 42)
-            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: WhoofTheme.cardRadius, style: .continuous))
 
-          Text("Sign in to Coach")
+          Text("Connect Coach")
             .font(.title2.bold())
-          Text("Sign in to stream Coach replies and local Whoof tool calls.")
+          Text("Coach uses Google Gemini's free tier. Paste a free API key to stream replies and local Whoof tool calls.")
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .healthCardSurface()
 
         VStack(alignment: .leading, spacing: 12) {
-          CoachStatusLine(title: "Sign in", value: loginStatus)
+          CoachStatusLine(title: "Status", value: loginStatus)
 
-          if let deviceCode {
-            VStack(alignment: .leading, spacing: 8) {
-              Text(deviceCode.userCode)
-                .font(.title2.monospacedDigit().weight(.bold))
-              Link(deviceCode.verificationURL.absoluteString, destination: deviceCode.verificationURL)
+          SecureField("Gemini API key", text: $apiKeyDraft)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.done)
+            .onSubmit { saveKey(apiKeyDraft) }
+            .padding(12)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+          if let consoleURL {
+            Link(destination: consoleURL) {
+              Label("Get a free key in Google AI Studio", systemImage: "arrow.up.right.square")
                 .font(.footnote.weight(.semibold))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
           }
 
           if let errorMessage, !errorMessage.isEmpty {
@@ -49,19 +55,22 @@ struct CoachSignInScreen: View {
               .fixedSize(horizontal: false, vertical: true)
           }
 
-          Button(action: signIn) {
-            Label("Continue", systemImage: "person.crop.circle.badge.checkmark")
+          Button {
+            saveKey(apiKeyDraft)
+          } label: {
+            Label("Save key", systemImage: "key.fill")
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.borderedProminent)
+          .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-          Text("Coach sends the question plus bounded local tool output after approval. Tokens are stored in Keychain.")
+          Text("The key is stored on this device. Coach sends your question plus bounded local tool output to Gemini.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .healthCardSurface()
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 18)

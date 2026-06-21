@@ -1,10 +1,9 @@
 import Foundation
 
 @MainActor
-final class OpenAICoachChatModel: ObservableObject {
+final class CoachChatModel: ObservableObject {
   @Published private(set) var isSignedIn = false
-  @Published private(set) var deviceCode: CodexLoginDeviceCode?
-  @Published private(set) var loginStatus = "Not signed in"
+  @Published private(set) var loginStatus = "No API key"
   @Published private(set) var modelPreset: CoachModelPreset
   @Published private(set) var messages: [CoachChatMessage] = []
   @Published private(set) var streamState: CoachStreamState = .idle
@@ -12,11 +11,9 @@ final class OpenAICoachChatModel: ObservableObject {
 
   private static let modelPresetDefaultsKey = "goose.coach.modelPreset"
   private static let seedPromptText = "What should we look at today?"
-  private var auth: CodexStoredChatGPTAuth?
+  private var apiKey: String?
   private var sendTask: Task<Void, Never>?
-  private var loginTask: Task<Void, Never>?
-  private let authClient = CodexSelfContainedAuthClient()
-  private let client = OpenAIResponsesClient()
+  private let client = GeminiCoachClient()
 
   init() {
     let storedRawValue = UserDefaults.standard.string(forKey: Self.modelPresetDefaultsKey)
@@ -29,32 +26,34 @@ final class OpenAICoachChatModel: ObservableObject {
 
   deinit {
     sendTask?.cancel()
-    loginTask?.cancel()
   }
 
   func refreshAuth() {
-    Task { [weak self, authClient] in
-      do {
-        if let storedAuth = try await authClient.storedAuth(refreshIfNeeded: true) {
-          self?.auth = storedAuth
-          self?.isSignedIn = true
-          self?.deviceCode = nil
-          self?.loginStatus = "Signed in"
-          self?.seedAssistantPromptIfNeeded()
-        } else {
-          self?.auth = nil
-          self?.isSignedIn = false
-          self?.deviceCode = nil
-          self?.loginStatus = "Not signed in"
-        }
-      } catch {
-        self?.auth = nil
-        self?.isSignedIn = false
-        self?.deviceCode = nil
-        self?.loginStatus = "Auth check failed"
-        self?.errorMessage = self?.describe(error) ?? String(describing: error)
-      }
+    if let key = CoachAPIKeyStore.load() {
+      apiKey = key
+      isSignedIn = true
+      loginStatus = "API key saved"
+      seedAssistantPromptIfNeeded()
+    } else {
+      apiKey = nil
+      isSignedIn = false
+      loginStatus = "No API key"
     }
+  }
+
+  /// Persist a Gemini API key and unlock the coach. Replaces the OAuth sign-in.
+  func saveAPIKey(_ key: String) {
+    let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      errorMessage = "Paste a Gemini API key."
+      return
+    }
+    CoachAPIKeyStore.save(trimmed)
+    apiKey = trimmed
+    isSignedIn = true
+    loginStatus = "API key saved"
+    errorMessage = nil
+    seedAssistantPromptIfNeeded()
   }
 
   func selectModelPreset(_ preset: CoachModelPreset) {
@@ -72,52 +71,13 @@ final class OpenAICoachChatModel: ObservableObject {
     seedAssistantPromptIfNeeded()
   }
 
-  func startOAuthSignIn() {
-    loginTask?.cancel()
-    loginStatus = "Requesting OAuth code"
-    deviceCode = nil
-    errorMessage = nil
-
-    loginTask = Task { [weak self, authClient] in
-      do {
-        let code = try await authClient.requestDeviceCodeWithRetry()
-        self?.deviceCode = CodexLoginDeviceCode(
-          verificationURL: code.verificationURL,
-          userCode: code.userCode
-        )
-        self?.loginStatus = "Waiting for approval"
-
-        let storedAuth = try await authClient.completeDeviceCodeLogin(code)
-        self?.auth = storedAuth
-        self?.isSignedIn = true
-        self?.deviceCode = nil
-        self?.loginStatus = "Signed in"
-        self?.seedAssistantPromptIfNeeded()
-      } catch is CancellationError {
-        self?.loginStatus = "Cancelled"
-      } catch {
-        self?.loginStatus = "OAuth failed"
-        self?.errorMessage = self?.describe(error) ?? String(describing: error)
-      }
-    }
-  }
-
   func signOut() {
     sendTask?.cancel()
     sendTask = nil
-    loginTask?.cancel()
-    loginTask = nil
-    Task { [weak self, authClient] in
-      do {
-        try await authClient.clearStoredAuth()
-      } catch {
-        self?.errorMessage = self?.describe(error) ?? String(describing: error)
-      }
-    }
-    auth = nil
-    deviceCode = nil
+    CoachAPIKeyStore.clear()
+    apiKey = nil
     isSignedIn = false
-    loginStatus = "Not signed in"
+    loginStatus = "No API key"
     streamState = .idle
     messages.removeAll()
     CoachConversationStore.clear()
@@ -139,9 +99,9 @@ final class OpenAICoachChatModel: ObservableObject {
     guard !trimmedPrompt.isEmpty, !streamState.isStreaming else {
       return
     }
-    guard let auth else {
+    guard let apiKey else {
       isSignedIn = false
-      errorMessage = OpenAIResponsesError.missingOAuthSession.localizedDescription
+      errorMessage = GeminiCoachError.missingAPIKey.localizedDescription
       return
     }
 
@@ -162,7 +122,7 @@ final class OpenAICoachChatModel: ObservableObject {
         try await streamResponseLoop(
           prompt: trimmedPrompt,
           contextualPrompt: contextualPrompt,
-          auth: auth,
+          apiKey: apiKey,
           assistantID: assistantID,
           healthStore: healthStore,
           appModel: appModel
@@ -188,205 +148,96 @@ final class OpenAICoachChatModel: ObservableObject {
   private func streamResponseLoop(
     prompt: String,
     contextualPrompt: String,
-    auth: CodexStoredChatGPTAuth,
+    apiKey: String,
     assistantID: UUID,
     healthStore: HealthDataStore,
     appModel: WhoofAppModel
   ) async throws {
-    let activeAuth = try await authClient.storedAuth(refreshIfNeeded: true) ?? auth
-    self.auth = activeAuth
-    let activeModelPreset = modelPreset
-    var conversationInput = OpenAICoachRequestFactory.userInput(contextualPrompt)
-    var input: Any = conversationInput
-    var toolMode: OpenAICoachRequestFactory.ToolMode = .required
+    let model = modelPreset.modelID
+    var contents: [[String: Any]] = [GeminiCoachRequest.userText(contextualPrompt)]
 
-    for _ in 0..<2 {
-      var completedToolCalls: [OpenAICoachToolCall] = []
-      var responseID: String?
-      var inFlightToolCalls: [String: OpenAICoachToolCall] = [:]
-
-      let requestBody = OpenAICoachRequestFactory.makeRequest(
-        input: input,
-        toolMode: toolMode,
-        modelPreset: activeModelPreset
-      )
-
-      try await client.stream(auth: activeAuth, body: requestBody) { [weak self] event in
-        guard let self else {
-          return
-        }
-        try handle(
-          event,
-          assistantID: assistantID,
-          inFlightToolCalls: &inFlightToolCalls,
-          completedToolCalls: &completedToolCalls,
-          responseID: &responseID
-        )
-      }
-
-      guard !completedToolCalls.isEmpty else {
+    // Pass 1: let the model request local tools.
+    var calls: [GeminiCoachFunctionCall] = []
+    let firstBody = GeminiCoachRequest.body(model: model, contents: contents, includeTools: true)
+    try await client.stream(apiKey: apiKey, model: model, body: firstBody) { [weak self] item in
+      guard let self else {
         return
       }
-
-      let toolItems = completedToolCalls.flatMap { call -> [[String: Any]] in
-        let output = execute(call: call, healthStore: healthStore, appModel: appModel)
-        updateToolEvent(id: call.id, in: assistantID) { event in
-          event.status = "Returned"
-          event.resultSummary = summarizeToolOutput(output)
-        }
-        return [
-          [
-            "type": "function_call",
-            "id": call.id,
-            "call_id": call.callID,
-            "name": call.name,
-            "arguments": call.arguments.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "{}" : call.arguments,
-          ],
-          [
-            "type": "function_call_output",
-            "call_id": call.callID,
-            "output": output,
-          ],
-        ]
+      switch item {
+      case .text(let text):
+        appendAssistantText(text, to: assistantID)
+      case .functionCall(let call):
+        calls.append(call)
+        upsertToolEvent(
+          CoachToolEvent(
+            id: toolEventID(for: call, index: calls.count - 1),
+            name: call.name,
+            status: "Running",
+            arguments: jsonString(call.arguments),
+            resultSummary: nil
+          ),
+          in: assistantID
+        )
       }
-      conversationInput.append(contentsOf: toolItems)
-      conversationInput.append(OpenAICoachRequestFactory.finalAnswerInput(originalPrompt: prompt))
-      input = conversationInput
-      toolMode = .none
+    }
+
+    guard !calls.isEmpty else {
+      return
+    }
+
+    // Echo the model's function-call turn, then the tool results turn.
+    let modelParts = calls.map { ["functionCall": ["name": $0.name, "args": $0.arguments]] }
+    contents.append(["role": "model", "parts": modelParts])
+
+    var responseParts: [[String: Any]] = []
+    for (index, call) in calls.enumerated() {
+      let output = execute(call: call, healthStore: healthStore, appModel: appModel)
+      updateToolEvent(id: toolEventID(for: call, index: index), in: assistantID) { event in
+        event.status = "Returned"
+        event.resultSummary = summarizeToolOutput(jsonString(output))
+      }
+      responseParts.append([
+        "functionResponse": [
+          "name": call.name,
+          "response": output,
+        ],
+      ])
+    }
+    contents.append(["role": "user", "parts": responseParts])
+    contents.append(GeminiCoachRequest.userText(
+      "Use the tool outputs above to answer this original Coach question now. Do not request more tools.\n\nOriginal question:\n\(prompt)"
+    ))
+
+    // Pass 2: final answer, no tools.
+    let secondBody = GeminiCoachRequest.body(model: model, contents: contents, includeTools: false)
+    try await client.stream(apiKey: apiKey, model: model, body: secondBody) { [weak self] item in
+      guard let self else {
+        return
+      }
+      if case .text(let text) = item {
+        appendAssistantText(text, to: assistantID)
+      }
     }
 
     if isAssistantTextEmpty(assistantID) {
-      throw OpenAIResponsesError.api("Coach returned tool calls but no final reply.")
+      throw GeminiCoachError.api("Coach returned tool calls but no final reply.")
     }
-  }
-
-  private func handle(
-    _ event: OpenAIResponseStreamEvent,
-    assistantID: UUID,
-    inFlightToolCalls: inout [String: OpenAICoachToolCall],
-    completedToolCalls: inout [OpenAICoachToolCall],
-    responseID: inout String?
-  ) throws {
-    responseID = responseID ?? responseIDFrom(event.payload)
-
-    switch event.type {
-    case "response.created", "response.in_progress":
-      responseID = responseID ?? responseIDFrom(event.payload)
-    case "response.output_text.delta":
-      if let delta = event.payload["delta"] as? String {
-        appendAssistantText(delta, to: assistantID)
-      }
-    case "response.output_text.done":
-      guard let text = event.payload["text"] as? String, isAssistantTextEmpty(assistantID) else {
-        return
-      }
-      appendAssistantText(text, to: assistantID)
-    case "response.output_item.added":
-      guard let item = event.payload["item"] as? [String: Any],
-            let call = toolCall(from: item, fallbackID: fallbackToolID(from: event.payload)) else {
-        return
-      }
-      inFlightToolCalls[call.id] = call
-      upsertToolEvent(
-        CoachToolEvent(
-          id: call.id,
-          name: call.name,
-          status: "Calling",
-          arguments: call.arguments,
-          resultSummary: nil
-        ),
-        in: assistantID
-      )
-    case "response.function_call_arguments.delta":
-      let id = fallbackToolID(from: event.payload)
-      guard let id, let delta = event.payload["delta"] as? String else {
-        return
-      }
-      var call = inFlightToolCalls[id] ?? OpenAICoachToolCall(id: id, callID: id, name: "function", arguments: "")
-      call.arguments += delta
-      inFlightToolCalls[id] = call
-      updateToolEvent(id: id, in: assistantID) { event in
-        event.status = "Preparing"
-        event.arguments = call.arguments
-      }
-    case "response.function_call_arguments.done":
-      completeToolCall(
-        from: event.payload,
-        assistantID: assistantID,
-        inFlightToolCalls: &inFlightToolCalls,
-        completedToolCalls: &completedToolCalls
-      )
-    case "response.output_item.done":
-      completeToolCall(
-        from: event.payload,
-        assistantID: assistantID,
-        inFlightToolCalls: &inFlightToolCalls,
-        completedToolCalls: &completedToolCalls
-      )
-    case "response.completed":
-      responseID = responseIDFrom(event.payload) ?? responseID
-    case "response.failed", "error":
-      throw OpenAIResponsesError.api(errorMessage(from: event.payload))
-    default:
-      break
-    }
-  }
-
-  private func completeToolCall(
-    from payload: [String: Any],
-    assistantID: UUID,
-    inFlightToolCalls: inout [String: OpenAICoachToolCall],
-    completedToolCalls: inout [OpenAICoachToolCall]
-  ) {
-    let fallbackID = fallbackToolID(from: payload)
-    let finishedCall: OpenAICoachToolCall?
-    if let item = payload["item"] as? [String: Any],
-       let itemCall = toolCall(from: item, fallbackID: fallbackID) {
-      finishedCall = itemCall
-    } else if let fallbackID, var call = inFlightToolCalls[fallbackID] {
-      if let arguments = payload["arguments"] as? String {
-        call.arguments = arguments
-      }
-      finishedCall = call
-    } else {
-      finishedCall = nil
-    }
-
-    guard let finishedCall else {
-      return
-    }
-    guard !completedToolCalls.contains(where: { $0.id == finishedCall.id || $0.callID == finishedCall.callID }) else {
-      return
-    }
-
-    completedToolCalls.append(finishedCall)
-    inFlightToolCalls[finishedCall.id] = finishedCall
-    upsertToolEvent(
-      CoachToolEvent(
-        id: finishedCall.id,
-        name: finishedCall.name,
-        status: "Running",
-        arguments: finishedCall.arguments,
-        resultSummary: nil
-      ),
-      in: assistantID
-    )
   }
 
   private func execute(
-    call: OpenAICoachToolCall,
+    call: GeminiCoachFunctionCall,
     healthStore: HealthDataStore,
     appModel: WhoofAppModel
-  ) -> String {
+  ) -> [String: Any] {
     let payload = CoachLocalToolContext.build(healthStore: healthStore, appModel: appModel)
     let tools = payload["tools"] as? [String: Any] ?? [:]
-    let output: Any
 
     switch call.name {
     case "load_stats", "get_activities", "get_capture_sessions", "get_raw_session_data":
-      output = tools[call.name] ?? ["error": "tool_not_available", "tool": call.name]
+      let value = tools[call.name] ?? ["error": "tool_not_available", "tool": call.name]
+      return ["result": value]
     case "get_data_gaps":
-      output = [
+      return [
         "readiness": healthStore.metricInputReadinessSummary(),
         "input_next_action": healthStore.metricInputReadinessNextActionSummary(),
         "score_next_action": healthStore.packetDerivedScoreNextActionSummary(),
@@ -395,10 +246,12 @@ final class OpenAICoachChatModel: ObservableObject {
         "capture": tools["get_capture_sessions"] ?? [:],
       ]
     default:
-      output = ["error": "unknown_tool", "tool": call.name]
+      return ["error": "unknown_tool", "tool": call.name]
     }
+  }
 
-    return jsonString(output)
+  private func toolEventID(for call: GeminiCoachFunctionCall, index: Int) -> String {
+    "\(call.name)-\(index)"
   }
 
   private func appendAssistantText(_ delta: String, to id: UUID) {
@@ -546,40 +399,6 @@ final class OpenAICoachChatModel: ObservableObject {
       )
     )
     persistConversation()
-  }
-
-  private func toolCall(from item: [String: Any], fallbackID: String?) -> OpenAICoachToolCall? {
-    let itemID = item["id"] as? String ?? fallbackID
-    let callID = item["call_id"] as? String ?? itemID
-    let name = item["name"] as? String ?? (item["function"] as? [String: Any])?["name"] as? String
-    let arguments = item["arguments"] as? String ?? (item["function"] as? [String: Any])?["arguments"] as? String ?? ""
-    guard let itemID, let callID, let name else {
-      return nil
-    }
-    return OpenAICoachToolCall(id: itemID, callID: callID, name: name, arguments: arguments)
-  }
-
-  private func fallbackToolID(from payload: [String: Any]) -> String? {
-    payload["item_id"] as? String ??
-      payload["call_id"] as? String ??
-      (payload["output_index"] as? Int).map { "tool-\($0)" }
-  }
-
-  private func responseIDFrom(_ payload: [String: Any]) -> String? {
-    if let responseID = payload["response_id"] as? String {
-      return responseID
-    }
-    if let response = payload["response"] as? [String: Any] {
-      return response["id"] as? String
-    }
-    return nil
-  }
-
-  private func errorMessage(from payload: [String: Any]) -> String {
-    if let error = payload["error"] as? [String: Any] {
-      return error["message"] as? String ?? "\(error)"
-    }
-    return payload["message"] as? String ?? "Coach stream failed."
   }
 
   private func summarizeToolOutput(_ output: String) -> String {

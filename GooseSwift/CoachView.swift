@@ -4,7 +4,7 @@ struct CoachView: View {
   @EnvironmentObject private var model: WhoofAppModel
   @EnvironmentObject private var router: AppRouter
   @ObservedObject var healthStore: HealthDataStore
-  @StateObject private var chat = OpenAICoachChatModel()
+  @StateObject private var chat = CoachChatModel()
   @State private var promptDraft = ""
   @State private var appliedCoachPromptRequestID = 0
   @State private var showingChat = false
@@ -58,12 +58,11 @@ struct CoachView: View {
       chat.refreshAuth()
       applyRequestedCoachPromptIfNeeded()
     }
-    .onChange(of: router.codexEmbeddedLoginRequestID) { _, requestID in
+    .onChange(of: router.coachConnectRequestID) { _, requestID in
       guard requestID > 0, !chat.isSignedIn else {
         return
       }
       showingChat = true
-      chat.startOAuthSignIn()
     }
     .onChange(of: router.coachPromptRequestID) { _, _ in
       applyRequestedCoachPromptIfNeeded()
@@ -83,9 +82,8 @@ struct CoachView: View {
     } else {
       CoachSignInScreen(
         loginStatus: chat.loginStatus,
-        deviceCode: chat.deviceCode,
         errorMessage: chat.errorMessage,
-        signIn: chat.startOAuthSignIn
+        saveKey: chat.saveAPIKey
       )
     }
   }
@@ -629,7 +627,7 @@ private extension View {
 }
 
 private struct CoachProfileMenu: View {
-  @ObservedObject var chat: OpenAICoachChatModel
+  @ObservedObject var chat: CoachChatModel
 
   var body: some View {
     Menu {

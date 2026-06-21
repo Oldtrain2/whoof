@@ -55,37 +55,34 @@ struct CoachChatMessage: Identifiable, Equatable, Codable {
 }
 
 enum CoachModelPreset: String, CaseIterable, Identifiable {
-  case gpt55Low
-  case gpt55Medium
-  case gpt55High
+  case flashLite
+  case flash
+  case flashThinking
 
   var id: String { rawValue }
 
-  static let defaultValue: CoachModelPreset = .gpt55Medium
+  static let defaultValue: CoachModelPreset = .flash
 
   var title: String {
     switch self {
-    case .gpt55Low:
-      return "GPT-5.5 Low"
-    case .gpt55Medium:
-      return "GPT-5.5 Medium"
-    case .gpt55High:
-      return "GPT-5.5 High"
+    case .flashLite:
+      return "Gemini 2.0 Flash Lite"
+    case .flash:
+      return "Gemini 2.0 Flash"
+    case .flashThinking:
+      return "Gemini 2.5 Flash"
     }
   }
 
+  /// Google Gemini model id used against the free-tier API.
   var modelID: String {
-    "gpt-5.5"
-  }
-
-  var effort: String {
     switch self {
-    case .gpt55Low:
-      return "low"
-    case .gpt55Medium:
-      return "medium"
-    case .gpt55High:
-      return "high"
+    case .flashLite:
+      return "gemini-2.0-flash-lite"
+    case .flash:
+      return "gemini-2.0-flash"
+    case .flashThinking:
+      return "gemini-2.5-flash"
     }
   }
 }
