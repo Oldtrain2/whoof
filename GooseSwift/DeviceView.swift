@@ -32,7 +32,38 @@ private struct DeviceContentView: View {
             deviceName: ble.activeDeviceName,
             lastSync: lastSyncSummary
           )
-          .padding(.bottom, 30)
+          .padding(.bottom, deviceConnected ? 30 : 16)
+
+          if !deviceConnected {
+            Button {
+              if ble.isScanning {
+                ble.stopScan()
+              } else if ble.canReconnectRemembered {
+                ble.reconnectRemembered()
+              } else {
+                ble.startScan()
+              }
+            } label: {
+              Label(
+                ble.isScanning
+                  ? "Scanning for WHOOP\u{2026}"
+                  : (ble.canReconnectRemembered ? "Reconnect" : "Scan & Connect"),
+                systemImage: ble.isScanning ? "stop.circle" : "arrow.clockwise"
+              )
+              .font(.headline)
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(connectedGreen)
+            .padding(.bottom, 28)
+
+            Text("Connected in iOS Bluetooth but not here? Tap to let the app find and connect the band.")
+              .font(.caption)
+              .foregroundStyle(secondaryText)
+              .padding(.bottom, 14)
+          }
 
           DeviceStatusTabs(selectedPanel: $selectedPanel)
             .padding(.bottom, 46)

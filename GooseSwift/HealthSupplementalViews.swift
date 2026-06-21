@@ -240,28 +240,38 @@ struct HealthWideRouteCard: View {
 struct HealthInfoRow: View {
   let row: HealthSummaryRow
 
+  private var accent: Color {
+    row.source.kind == .unavailable ? .orange : .accentColor
+  }
+
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
+    HStack(alignment: .center, spacing: 12) {
       Image(systemName: row.systemImage)
-        .font(.system(size: 17, weight: .semibold))
-        .foregroundStyle(row.source.kind == .unavailable ? .orange : .secondary)
-        .frame(width: 24)
-      VStack(alignment: .leading, spacing: 4) {
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(accent)
+        .frame(width: 32, height: 32)
+        .background(accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      VStack(alignment: .leading, spacing: 2) {
+        // Label is the quiet caption; the value carries the visual weight.
         Text(row.label)
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
-        Text(row.value)
-          .font(.subheadline)
+          .font(.caption.weight(.medium))
           .foregroundStyle(.secondary)
+        Text(row.value)
+          .font(.body.weight(.semibold))
+          .foregroundStyle(.primary)
         if !row.status.isEmpty {
           Text(row.status)
-            .font(.caption)
+            .font(.caption2)
             .foregroundStyle(.tertiary)
         }
-        Text(row.source.label)
-          .font(.caption2)
-          .foregroundStyle(.tertiary)
       }
+      Spacer(minLength: 8)
+      Text(row.source.label)
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.tertiary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Color.secondary.opacity(0.10), in: Capsule())
     }
   }
 }

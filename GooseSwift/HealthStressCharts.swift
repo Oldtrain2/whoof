@@ -353,8 +353,10 @@ struct HealthSectionTitle: View {
 
   var body: some View {
     Text(title)
-      .font(.title3.bold())
+      .font(.title2.weight(.bold))
+      .foregroundStyle(.primary)
       .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, 4)
   }
 }
 
