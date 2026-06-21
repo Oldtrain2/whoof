@@ -68,6 +68,8 @@ extension HealthDataStore {
       return liveHeartRateStatSnapshot(base: snapshot, stat: .mean)
     case "max-hr-today":
       return liveHeartRateStatSnapshot(base: snapshot, stat: .max)
+    case "vo2max":
+      return vo2MaxHealthMonitorSnapshot(base: snapshot)
     case "oxygen-saturation":
       if let stored = dailyRecoveryMetricSnapshot(
         base: snapshot,

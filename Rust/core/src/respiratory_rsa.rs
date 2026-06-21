@@ -179,7 +179,11 @@ fn clamp01(value: f64) -> f64 {
 pub const GOOSE_HRV_FREQUENCY_V0_ID: &str = "goose.hrv.frequency.v0";
 pub const GOOSE_HRV_FREQUENCY_V0_VERSION: &str = "0.1.0";
 
-const FREQ_MIN_WINDOW_SECONDS: f64 = 120.0;
+// 60s admits LF/HF from a ~1 min RR window (coarser LF resolution than the
+// classic 2 min, but a real computation). Without this, an elevated heart rate
+// shrinks the fixed-count live RR buffer below 120s and the metric silently
+// disappears.
+const FREQ_MIN_WINDOW_SECONDS: f64 = 60.0;
 
 /// Frequency-domain HRV: power in the VLF/LF/HF bands and the LF/HF ratio, an
 /// index of autonomic (sympathetic vs parasympathetic) balance. Computed from
@@ -378,9 +382,23 @@ mod tests {
 
     #[test]
     fn frequency_hrv_rejects_short_window() {
-        let rr = synthetic_rr(0.25, 60.0, 900.0, 40.0); // under 120s
+        let rr = synthetic_rr(0.25, 40.0, 900.0, 40.0); // under 60s
         let out = goose_hrv_frequency_v0(&rr);
         assert!(out.quality_flags.contains(&"hrv_freq_window_too_short".to_string()));
         assert_eq!(out.total_power_ms2, 0.0);
+    }
+
+    #[test]
+    fn frequency_hrv_accepts_medium_window_at_elevated_hr() {
+        // ~90s of RR at an elevated heart rate (600ms ≈ 100 bpm) must still yield
+        // LF/HF — the live RR buffer would otherwise fall under the old 120s gate.
+        let rr = synthetic_rr(0.25, 90.0, 600.0, 25.0);
+        let out = goose_hrv_frequency_v0(&rr);
+        assert!(
+            out.quality_flags.is_empty(),
+            "expected available LF/HF, got {:?}",
+            out.quality_flags
+        );
+        assert!(out.total_power_ms2 > 0.0);
     }
 }

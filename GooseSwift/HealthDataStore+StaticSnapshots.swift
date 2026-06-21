@@ -29,6 +29,7 @@ extension HealthDataStore {
     snapshot(id: "autonomic-balance", route: .healthMonitor, group: .vitals, title: "Autonomic Balance", value: "--", unit: "LF/HF", status: "Unavailable", freshness: "No validated HRV", provenance: "metrics.hrv_advanced", source: .unavailable("LF/HF requires a 2+ min RR window"), systemImage: "arrow.left.arrow.right", tint: .purple, trendValues: [], range: "No data"),
     snapshot(id: "mean-hr-today", route: .healthMonitor, group: .vitals, title: "Mean HR Today", value: "--", unit: "bpm", status: "Unavailable", freshness: "No local data", provenance: "heart_rate_sample_store.mean", source: .unavailable("mean HR requires today's heart-rate samples"), systemImage: "heart.text.square", tint: .pink, trendValues: [], range: "No data"),
     snapshot(id: "max-hr-today", route: .healthMonitor, group: .vitals, title: "Max HR Today", value: "--", unit: "bpm", status: "Unavailable", freshness: "No local data", provenance: "heart_rate_sample_store.max", source: .unavailable("max HR requires today's heart-rate samples"), systemImage: "bolt.heart", tint: .red, trendValues: [], range: "No data"),
+    snapshot(id: "vo2max", route: .healthMonitor, group: .vitals, title: "VO2 Max (est.)", value: "--", unit: "ml/kg/min", status: "Unavailable", freshness: "Needs resting HR + age", provenance: "vo2max.heuristic", source: .unavailable("VO2 max estimate requires a resting HR estimate and your age"), systemImage: "figure.run.circle", tint: .mint, trendValues: [], range: "No data"),
   ]
 
   static let sleepTrendRows = [

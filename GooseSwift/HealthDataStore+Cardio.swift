@@ -4,6 +4,54 @@ import SwiftUI
 import UIKit
 
 extension HealthDataStore {
+  /// Population-heuristic VO2 max estimate (Uth-Sørensen-Overgaard 2004):
+  /// VO2max ≈ 15.3 × (maxHR / restingHR). NOT individualized and invalid on
+  /// heart-rate-altering medication; always labeled "Estimate". Real-data-only:
+  /// needs a real resting-HR estimate (≥12 band samples) and the profile age.
+  func estimatedVO2Max(for date: Date = Date(), calendar: Calendar = .current) -> Double? {
+    guard let resting = heartRateSeriesStore
+      .restingEstimate(forDayContaining: date, calendar: calendar)?.bpm,
+      resting.isFinite, (30.0...120.0).contains(resting) else {
+      return nil
+    }
+    let profile = OnboardingProfileSnapshot()
+    guard let ageYears = Self.profileAgeYears(from: profile.dateOfBirthString, calendar: calendar) else {
+      return nil
+    }
+    let maxHR = max(120.0, min(210.0, 208.0 - 0.7 * Double(ageYears)))
+    let vo2 = 15.3 * (maxHR / resting)
+    guard vo2.isFinite, (10.0...90.0).contains(vo2) else {
+      return nil
+    }
+    return vo2
+  }
+
+  func vo2MaxHealthMonitorSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    guard let vo2 = estimatedVO2Max(),
+          let text = Self.numberText(vo2, fractionDigits: 1) else {
+      return replacingHealthMonitorSnapshot(
+        snapshot,
+        value: "--",
+        unit: snapshot.unit,
+        status: "Unavailable",
+        freshness: "Needs resting HR + age",
+        provenance: "vo2max.heuristic",
+        source: .unavailable("requires a resting HR estimate and your profile age"),
+        trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+      )
+    }
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: text,
+      unit: snapshot.unit,
+      status: "Estimate",
+      freshness: "Population heuristic",
+      provenance: "15.3 × maxHR / restingHR",
+      source: .localEstimate("estimated from resting HR + age (population heuristic)"),
+      trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+    )
+  }
+
   func cardioLoadWeeklyPoints() -> [CardioLoadDay] {
     cardioLoadPoints(range: "7D")
   }

@@ -347,7 +347,9 @@ final class WhoofBLEClient: NSObject, ObservableObject {
   static let restingHeartRateWindowSize = 300
   static let restingHeartRateMinimumSampleCount = 12
   static let restingHeartRateEstimatePublishInterval: TimeInterval = 60
-  static let hrvRRIntervalWindowSize = 120
+  // 240 intervals keeps ~2-4 min of RR in the live window so frequency-domain
+  // HRV (LF/HF) has enough duration even at elevated heart rate.
+  static let hrvRRIntervalWindowSize = 240
   static let hrvRRIntervalChunkSize = 30
   static let hrvMinimumRRIntervalsPerChunk = 10
   static let hrvChunkMaxAge: TimeInterval = 60
