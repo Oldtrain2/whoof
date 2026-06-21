@@ -279,8 +279,6 @@ struct MoreCaptureView: View {
       return .blocked
     case "unavailable":
       return .unavailable
-    case "stale":
-      return .blocked
     default:
       return .pending
     }

@@ -3,13 +3,32 @@ import Foundation
 import SwiftUI
 import UIKit
 
+/// One-line "how it works" caption shown under a metric route's hero.
+struct HealthFeatureBlurb: View {
+  let text: String
+
+  init(_ text: String) {
+    self.text = text
+  }
+
+  var body: some View {
+    Text(text)
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.top, 2)
+      .padding(.bottom, 6)
+  }
+}
+
 struct EnergyBankView: View {
   @ObservedObject var store: HealthDataStore
 
   var body: some View {
     List {
       Section {
-        HealthHero(snapshot: store.snapshot(for: .energyBank), subtitle: "Energy charge, drain, stress, and sleep contribution")
+        HealthHero(snapshot: store.snapshot(for: .energyBank), subtitle: "Charges with sleep and recovery, drains with stress and strain across the day.")
           .listRowInsets(EdgeInsets())
           .listRowBackground(Color.clear)
       }

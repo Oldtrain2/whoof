@@ -10,6 +10,9 @@ extension WhoofBLEClient {
       return
     }
 
+    // Mirror real band heart rate into Apple Health (throttled inside the exporter).
+    HealthKitMetricExporter.shared.broadcastLiveHeartRate(bpm: bpm, at: date)
+
     realtimeVitalsQueue.async { [weak self] in
       self?.processLiveHeartRate(bpm, source: source, at: date)
     }

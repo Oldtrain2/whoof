@@ -436,6 +436,8 @@ struct StrainV2OverviewPage: View {
           .clipped()
 
           VStack(alignment: .leading, spacing: 14) {
+            HealthFeatureBlurb("All-day cardiovascular load on a 0 to 21 scale, built from time spent in each heart-rate zone.")
+
             HStack(spacing: 12) {
               SleepV2StatCard(
                 palette: palette,

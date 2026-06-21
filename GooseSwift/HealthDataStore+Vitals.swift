@@ -714,6 +714,38 @@ extension HealthDataStore {
     (UserDefaults.standard.array(forKey: "goose.swift.liveRRIntervalsMS") as? [Double]) ?? []
   }
 
+  /// Broadcast today's real vitals (resting/mean HR, HRV SDNN, respiratory rate)
+  /// to Apple Health. Real-data-only: each field is omitted unless it has enough
+  /// genuine band data, and the exporter dedups by day.
+  func broadcastVitalsToHealthKit() {
+    guard HealthKitMetricExporter.isAvailable else {
+      return
+    }
+    let bpms = heartRateSeriesStore
+      .samples(forDayContaining: Date())
+      .map { $0.bpm }
+      .filter { (20...240).contains($0) }
+    var metrics = HealthKitMetricExporter.DailyMetrics(date: Date())
+    if bpms.count >= 6 {
+      metrics.meanHeartRateBPM = Double(bpms.reduce(0, +)) / Double(bpms.count)
+    }
+    if bpms.count >= 12 {
+      let sorted = bpms.sorted()
+      let quartile = max(1, sorted.count / 4)
+      let low = Array(sorted.prefix(quartile))
+      metrics.restingHeartRateBPM = Double(low.reduce(0, +)) / Double(low.count)
+    }
+    if let live = hrvFromLiveRR() {
+      if let sdnn = Self.doubleValue(live["sdnn_ms"]), sdnn.isFinite, sdnn > 0 {
+        metrics.hrvSDNNms = sdnn
+      }
+      if let rr = Self.doubleValue(live["respiratory_rate_rpm"]), rr.isFinite, rr > 0 {
+        metrics.respiratoryRateRPM = rr
+      }
+    }
+    Task { await HealthKitMetricExporter.shared.broadcastDailyMetrics(metrics) }
+  }
+
   func packetEvidenceFrameCount() -> Int {
     let reportCounts = packetInputReports.values.flatMap { report in
       [

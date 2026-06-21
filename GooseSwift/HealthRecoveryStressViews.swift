@@ -48,6 +48,8 @@ struct RecoveryV2OverviewPage: View {
             .frame(height: heroHeight)
 
             VStack(alignment: .leading, spacing: 14) {
+              HealthFeatureBlurb("Overnight readiness from your HRV, resting heart rate, respiratory rate, and sleep, computed on-device.")
+
               LazyVGrid(columns: statColumns, spacing: 12) {
                 SleepV2StatCard(
                   palette: palette,
@@ -235,6 +237,8 @@ struct StressV2OverviewPage: View {
           .frame(height: heroHeight)
 
           VStack(alignment: .leading, spacing: 14) {
+            HealthFeatureBlurb("Real-time autonomic stress from heart-rate elevation and HRV suppression, discounted for movement.")
+
             HStack(spacing: 12) {
               SleepV2StatCard(
                 palette: palette,

@@ -74,7 +74,7 @@ final class PacketMonitorModel: ObservableObject {
       performancePipelineStatus = "ui coalesced \(snapshot.coalescedStatusUpdateCount) status update(s) before publish (\(summary); reason=publish_interval_\(publishInterval)s) | \(performancePipelineStatus)"
     }
     if snapshot.droppedDeviceSignalPointCount > 0 {
-      performancePipelineStatus = "ui signal preview dropped \(snapshot.droppedDeviceSignalPointCount) stale point(s) | \(performancePipelineStatus)"
+      performancePipelineStatus = "ui signal preview dropped \(snapshot.droppedDeviceSignalPointCount) dropped point(s) | \(performancePipelineStatus)"
     }
   }
 }

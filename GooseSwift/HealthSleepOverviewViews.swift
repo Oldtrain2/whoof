@@ -52,6 +52,8 @@ struct SleepV2OverviewPage: View {
 	            .frame(height: heroHeight)
 
 	            VStack(alignment: .leading, spacing: 14) {
+	              HealthFeatureBlurb("Sleep performance is the sleep you got versus your physiological need; stages and timing come from band motion and heart rate.")
+
 	              HStack(spacing: 12) {
                 SleepV2StatCard(
                   palette: palette,

@@ -228,6 +228,13 @@ struct MoreProfileView: View {
       hydrateDateOfBirth()
       hydrateMeasurementsIfNeeded()
     }
+    .task {
+      // Keep weight in sync with Apple Health (no-op until read access is granted).
+      let autofill = await HealthKitProfileImporter.latestMeasurements()
+      await MainActor.run {
+        applyHealthKitProfileAutofill(autofill, overwrite: true)
+      }
+    }
     .onChange(of: dateOfBirth) { _, newValue in
       dateOfBirthString = MoreProfileDate.dateOnlyString(MoreProfileDate.clamp(newValue))
     }
@@ -300,6 +307,8 @@ struct MoreProfileView: View {
     dateOfBirthString = MoreProfileDate.dateOnlyString(dateOfBirth)
     heightMm = parsedHeightMm
     weightGrams = parsedWeightGrams
+    // Keep Apple Health in sync with the edited weight.
+    Task { await HealthKitMetricExporter.shared.broadcastBodyMass(grams: parsedWeightGrams) }
     if createdAtUnixMs == 0 {
       createdAtUnixMs = Int((Date().timeIntervalSince1970 * 1000).rounded())
     }
@@ -320,6 +329,8 @@ struct MoreProfileView: View {
     statusMessage = nil
     Task {
       let result = await HealthKitProfileImporter.requestProfileAccess()
+      // Also request write access so the app can broadcast metrics back to Health.
+      await HealthKitMetricExporter.shared.requestWriteAccess()
       await MainActor.run {
         applyHealthKitProfileAutofill(result.autofill, overwrite: true)
         healthKitImporting = false

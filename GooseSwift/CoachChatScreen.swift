@@ -12,7 +12,7 @@ struct CoachChatScreen: View {
     CoachPromptSuggestion(
       id: "blockers",
       title: "Find blockers",
-      detail: "Score readiness, stale inputs, and the next fix.",
+      detail: "Score readiness, missing inputs, and the next fix.",
       prompt: "What is blocking today's scores?",
       systemImage: "chart.bar.xaxis"
     ),

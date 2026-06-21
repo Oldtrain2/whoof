@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HomeDashboardView: View {
   @EnvironmentObject private var model: WhoofAppModel
-  @EnvironmentObject private var router: AppRouter
   @ObservedObject var healthStore: HealthDataStore
   @Binding var selectedDate: Date
   let openHealthRoute: (HealthRoute) -> Void
@@ -15,10 +14,7 @@ struct HomeDashboardView: View {
       LazyVStack(alignment: .leading, spacing: 18) {
         HomeDailyScoreCard(
           scores: scoreSnapshots,
-          actionSummary: dailyActionSummary,
-          coachTip: CoachTipFactory.homeTip(healthStore: healthStore, appModel: model),
-          openScore: openHealth,
-          openCoach: openCoach
+          openScore: openHealth
         )
 
         HomeStressEnergySection(
@@ -95,6 +91,7 @@ struct HomeDashboardView: View {
     .task {
       healthStore.loadBridgeCatalogsIfNeeded()
       model.refreshActivityTimeline(for: selectedDate)
+      healthStore.broadcastVitalsToHealthKit()
     }
     .onChange(of: selectedDate) { _, newValue in
       model.refreshActivityTimeline(for: newValue)
@@ -146,14 +143,6 @@ struct HomeDashboardView: View {
   private var deviceToolbarConnected: Bool {
     let state = model.ble.connectionState.lowercased()
     return state == "ready" || state == "connected"
-  }
-
-  private var dailyActionSummary: String {
-    let inputAction = healthStore.metricInputReadinessNextActionSummary()
-    if !inputAction.isEmpty {
-      return inputAction
-    }
-    return healthStore.packetDerivedScoreNextActionSummary()
   }
 
   private var landingSnapshots: [HealthMetricSnapshot] {
@@ -208,11 +197,6 @@ struct HomeDashboardView: View {
     } else {
       openHealth(.healthMonitor)
     }
-  }
-
-  private func openCoach(_ prompt: String) {
-    router.openCoach(prompt: prompt)
-    model.recordUIAction("coach.opened", detail: "Home daily score card")
   }
 }
 

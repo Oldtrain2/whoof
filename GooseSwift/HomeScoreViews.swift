@@ -44,45 +44,20 @@ struct HomeStartActivityFloatingButton: View {
 
 struct HomeDailyScoreCard: View {
   let scores: [HealthMetricSnapshot]
-  let actionSummary: String
-  let coachTip: CoachInlineTip
   let openScore: (HealthRoute) -> Void
-  let openCoach: (String) -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .top, spacing: 12) {
-        ForEach(scores) { score in
-          Button {
-            openScore(score.route)
-          } label: {
-            HomeScoreDial(snapshot: score)
-          }
-          .buttonStyle(.plain)
+    HStack(alignment: .top, spacing: 12) {
+      ForEach(scores) { score in
+        Button {
+          openScore(score.route)
+        } label: {
+          HomeScoreDial(snapshot: score)
         }
+        .buttonStyle(.plain)
       }
-      .frame(maxWidth: .infinity)
-
-      CoachTipCard(tip: displayCoachTip) {
-        openCoach(coachTip.prompt)
-      }
-      .padding(.top, 2)
     }
-  }
-
-  private var displayCoachTip: CoachInlineTip {
-    guard coachTip.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      return coachTip
-    }
-    return CoachInlineTip(
-      id: coachTip.id,
-      title: coachTip.title,
-      message: actionSummary,
-      source: coachTip.source,
-      prompt: coachTip.prompt,
-      systemImage: coachTip.systemImage,
-      tint: coachTip.tint
-    )
+    .frame(maxWidth: .infinity)
   }
 }
 
