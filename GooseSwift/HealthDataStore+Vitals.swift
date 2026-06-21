@@ -34,6 +34,9 @@ extension HealthDataStore {
           trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
         )
       }
+      if let live = liveRespiratorySnapshot(base: snapshot) {
+        return live
+      }
       if let unavailable = preferredDailyRecoveryUnavailableMetric(metricID: "respiratory_rate_rpm") {
         return unavailablePacketSnapshot(
           base: snapshot,
@@ -342,6 +345,9 @@ extension HealthDataStore {
     ) {
       return stored
     }
+    if let live = liveHrvRestingSnapshot(base: snapshot) {
+      return live
+    }
     guard let report = packetInputReports["hrv"] else {
       if let unavailable = preferredDailyRecoveryUnavailableMetric(metricID: "hrv_rmssd_ms") {
         return unavailablePacketSnapshot(
@@ -570,7 +576,7 @@ extension HealthDataStore {
 
   func hrvAdvancedReport() -> [String: Any]? {
     let window = HealthDataStore.currentDailyMetricWindow()
-    return try? bridge.request(
+    let synced = try? bridge.request(
       method: "metrics.hrv_advanced",
       args: [
         "database_path": databasePath,
@@ -580,6 +586,70 @@ extension HealthDataStore {
         "min_rr_intervals_to_compute": 2,
       ]
     )
+    if let synced, (synced["available"] as? Bool) == true {
+      return synced
+    }
+    // Live fallback: compute the advanced HRV set from the streaming RR window so
+    // the cards populate without a packet history sync.
+    if let live = hrvFromLiveRR(),
+       (live["available"] as? Bool) == true || (live["frequency_available"] as? Bool) == true {
+      return live
+    }
+    return synced
+  }
+
+  func liveHrvRestingSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot? {
+    guard let live = hrvFromLiveRR(),
+          (live["available"] as? Bool) == true,
+          let rmssd = Self.doubleValue(live["rmssd_ms"]),
+          let text = Self.numberText(rmssd, fractionDigits: 0) else {
+      return nil
+    }
+    let count = Self.intValue(live["rr_interval_count"]) ?? 0
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: text,
+      unit: "ms",
+      status: "Local estimate",
+      freshness: "Live RR (\(count) beats)",
+      provenance: "metrics.hrv_from_rr",
+      source: .localEstimate("live RR-interval HRV"),
+      trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+    )
+  }
+
+  func liveRespiratorySnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot? {
+    guard let live = hrvFromLiveRR(),
+          let rpm = Self.doubleValue(live["respiratory_rate_rpm"]),
+          rpm.isFinite, rpm > 0,
+          let text = Self.numberText(rpm, fractionDigits: 1) else {
+      return nil
+    }
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: text,
+      unit: "rpm",
+      status: "Local estimate",
+      freshness: "Live RR RSA",
+      provenance: "metrics.hrv_from_rr",
+      source: .localEstimate("live RR-interval RSA respiratory rate"),
+      trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+    )
+  }
+
+  func hrvFromLiveRR() -> [String: Any]? {
+    let rr = Self.liveRRIntervalsMS()
+    guard rr.count >= 2 else {
+      return nil
+    }
+    return try? bridge.request(
+      method: "metrics.hrv_from_rr",
+      args: ["rr_intervals_ms": rr]
+    )
+  }
+
+  static func liveRRIntervalsMS() -> [Double] {
+    (UserDefaults.standard.array(forKey: "goose.swift.liveRRIntervalsMS") as? [Double]) ?? []
   }
 
   func packetEvidenceFrameCount() -> Int {

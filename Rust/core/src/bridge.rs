@@ -2120,6 +2120,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(hrv_advanced_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.hrv_from_rr" => request_args::<HrvFromRrArgs>(&request)
+            .and_then(hrv_from_rr_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.hrv_capture_validation" => request_args::<HrvCaptureValidationArgs>(&request)
             .and_then(hrv_capture_validation_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -4067,6 +4071,45 @@ fn hrv_features_bridge(args: HrvFeaturesArgs) -> GooseResult<serde_json::Value> 
         report.score_result.as_ref(),
     )?;
     Ok(value)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HrvFromRrArgs {
+    #[serde(default)]
+    rr_intervals_ms: Vec<f64>,
+}
+
+/// Compute the full HRV + respiratory set directly from a raw RR-interval array
+/// (e.g. the live Bluetooth RR stream), without needing stored/synced packets.
+fn hrv_from_rr_bridge(args: HrvFromRrArgs) -> GooseResult<serde_json::Value> {
+    let rr = args.rr_intervals_ms;
+    let hrv = goose_hrv_v0(&HrvInput {
+        start_time: String::new(),
+        end_time: String::new(),
+        rr_intervals_ms: rr.clone(),
+        input_ids: Vec::new(),
+    });
+    let out = hrv.output.as_ref();
+    let frequency = crate::respiratory_rsa::goose_hrv_frequency_v0(&rr);
+    let respiratory = crate::respiratory_rsa::goose_respiratory_rate_v0(&rr);
+    Ok(json!({
+        "schema": "goose.hrv-from-rr.v1",
+        "generated_by": "goose-bridge",
+        "available": out.is_some(),
+        "rr_interval_count": rr.len(),
+        "rmssd_ms": out.map(|o| o.rmssd_ms),
+        "sdnn_ms": out.map(|o| o.sdnn_ms),
+        "pnn50_fraction": out.map(|o| o.pnn50_fraction),
+        "sd1_ms": out.map(|o| o.sd1_ms),
+        "sd2_ms": out.map(|o| o.sd2_ms),
+        "sd1_sd2_ratio": out.map(|o| o.sd1_sd2_ratio),
+        "frequency_available": frequency.quality_flags.is_empty(),
+        "lf_hf_ratio": frequency.lf_hf_ratio,
+        "lf_normalized": frequency.lf_normalized,
+        "hf_normalized": frequency.hf_normalized,
+        "respiratory_rate_rpm": respiratory.respiratory_rate_rpm,
+        "respiratory_window_seconds": respiratory.window_seconds,
+    }))
 }
 
 fn hrv_advanced_bridge(args: HrvFeaturesArgs) -> GooseResult<serde_json::Value> {

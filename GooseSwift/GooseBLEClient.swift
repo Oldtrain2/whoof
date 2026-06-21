@@ -333,6 +333,8 @@ final class WhoofBLEClient: NSObject, ObservableObject {
     static let liveHRVRMSSDSampleCount = "goose.swift.liveHRVRMSSDSampleCount"
     static let liveHRVUpdatedAt = "goose.swift.liveHRVUpdatedAt"
     static let liveHRVSource = "goose.swift.liveHRVSource"
+    static let liveRRIntervalsMS = "goose.swift.liveRRIntervalsMS"
+    static let liveRRIntervalsUpdatedAt = "goose.swift.liveRRIntervalsUpdatedAt"
     static let debugHistoricalRangeStatus = "goose.swift.debug.historicalRangeStatus"
   }
 

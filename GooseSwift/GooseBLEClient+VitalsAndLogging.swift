@@ -101,6 +101,10 @@ extension WhoofBLEClient {
     if rrIntervalWindowMS.count > Self.hrvRRIntervalWindowSize {
       rrIntervalWindowMS.removeFirst(rrIntervalWindowMS.count - Self.hrvRRIntervalWindowSize)
     }
+    // Persist the live RR window so on-device HRV/respiratory metrics can compute
+    // from streaming RR without waiting for a packet history sync.
+    UserDefaults.standard.set(rrIntervalWindowMS, forKey: DefaultsKey.liveRRIntervalsMS)
+    UserDefaults.standard.set(Date(), forKey: DefaultsKey.liveRRIntervalsUpdatedAt)
 
     if rrIntervalChunkStartedAt == nil {
       rrIntervalChunkStartedAt = date
