@@ -176,6 +176,113 @@ fn clamp01(value: f64) -> f64 {
     value.clamp(0.0, 1.0)
 }
 
+pub const GOOSE_HRV_FREQUENCY_V0_ID: &str = "goose.hrv.frequency.v0";
+pub const GOOSE_HRV_FREQUENCY_V0_VERSION: &str = "0.1.0";
+
+const FREQ_MIN_WINDOW_SECONDS: f64 = 120.0;
+
+/// Frequency-domain HRV: power in the VLF/LF/HF bands and the LF/HF ratio, an
+/// index of autonomic (sympathetic vs parasympathetic) balance. Computed from
+/// the same 4 Hz RR tachogram used for RSA respiratory rate.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HrvFrequencyOutput {
+    pub vlf_power_ms2: f64,
+    pub lf_power_ms2: f64,
+    pub hf_power_ms2: f64,
+    pub total_power_ms2: f64,
+    pub lf_hf_ratio: f64,
+    pub lf_normalized: f64,
+    pub hf_normalized: f64,
+    pub window_seconds: f64,
+    pub quality_flags: Vec<String>,
+}
+
+pub fn goose_hrv_frequency_v0(rr_intervals_ms: &[f64]) -> HrvFrequencyOutput {
+    let mut quality_flags = Vec::new();
+    let valid: Vec<f64> = rr_intervals_ms
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite() && (300.0..=2000.0).contains(value))
+        .collect();
+    let window_seconds = valid.iter().sum::<f64>() / 1000.0;
+
+    let empty = HrvFrequencyOutput {
+        vlf_power_ms2: 0.0,
+        lf_power_ms2: 0.0,
+        hf_power_ms2: 0.0,
+        total_power_ms2: 0.0,
+        lf_hf_ratio: 0.0,
+        lf_normalized: 0.0,
+        hf_normalized: 0.0,
+        window_seconds,
+        quality_flags: vec!["hrv_freq_window_too_short".to_string()],
+    };
+    if window_seconds < FREQ_MIN_WINDOW_SECONDS || valid.len() < MIN_VALID_INTERVALS {
+        return empty;
+    }
+
+    let tachogram = resample_tachogram(&valid, RESAMPLE_HZ);
+    let n = tachogram.len();
+    if n < 16 {
+        return empty;
+    }
+    let series_mean = tachogram.iter().sum::<f64>() / n as f64;
+
+    // Hann-windowed, mean-detrended series + window power for PSD normalization.
+    let mut windowed = Vec::with_capacity(n);
+    let mut window_power = 0.0;
+    for (i, &value) in tachogram.iter().enumerate() {
+        let w = 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / (n as f64 - 1.0)).cos();
+        windowed.push((value - series_mean) * w);
+        window_power += w * w;
+    }
+
+    let df = RESAMPLE_HZ / n as f64;
+    let half = n / 2;
+    let (mut vlf, mut lf, mut hf) = (0.0, 0.0, 0.0);
+    for k in 1..=half {
+        let freq = k as f64 * df;
+        if freq > 0.4 {
+            break;
+        }
+        let mut re = 0.0;
+        let mut im = 0.0;
+        for (i, &x) in windowed.iter().enumerate() {
+            let angle = -std::f64::consts::TAU * (k as f64) * (i as f64) / n as f64;
+            re += x * angle.cos();
+            im += x * angle.sin();
+        }
+        // One-sided PSD (ms^2/Hz), corrected for window power.
+        let psd = (re * re + im * im) / (RESAMPLE_HZ * window_power) * 2.0;
+        let band_power = psd * df;
+        if (0.0033..0.04).contains(&freq) {
+            vlf += band_power;
+        } else if (0.04..0.15).contains(&freq) {
+            lf += band_power;
+        } else if (0.15..=0.4).contains(&freq) {
+            hf += band_power;
+        }
+    }
+
+    let total = vlf + lf + hf;
+    let lf_hf_ratio = if hf > 0.0 { lf / hf } else { 0.0 };
+    let lf_hf_sum = lf + hf;
+    let lf_normalized = if lf_hf_sum > 0.0 { lf / lf_hf_sum } else { 0.0 };
+    let hf_normalized = if lf_hf_sum > 0.0 { hf / lf_hf_sum } else { 0.0 };
+
+    HrvFrequencyOutput {
+        vlf_power_ms2: vlf,
+        lf_power_ms2: lf,
+        hf_power_ms2: hf,
+        total_power_ms2: total,
+        lf_hf_ratio,
+        lf_normalized,
+        hf_normalized,
+        window_seconds,
+        quality_flags,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,5 +344,43 @@ mod tests {
         let out = goose_respiratory_rate_v0(&rr);
         assert!(out.respiratory_rate_rpm.is_some());
         assert_eq!(out.valid_interval_count, rr.len() - 3);
+    }
+
+    #[test]
+    fn frequency_hrv_is_hf_dominant_for_fast_oscillation() {
+        // 0.25 Hz modulation falls in the HF band (0.15-0.4 Hz).
+        let rr = synthetic_rr(0.25, 200.0, 900.0, 45.0);
+        let out = goose_hrv_frequency_v0(&rr);
+        assert!(out.quality_flags.is_empty(), "{:?}", out.quality_flags);
+        assert!(
+            out.hf_power_ms2 > out.lf_power_ms2,
+            "expected HF>LF, hf={} lf={}",
+            out.hf_power_ms2,
+            out.lf_power_ms2
+        );
+        assert!(out.lf_hf_ratio < 1.0);
+        assert!(out.hf_normalized > 0.5);
+    }
+
+    #[test]
+    fn frequency_hrv_is_lf_dominant_for_slow_oscillation() {
+        // 0.1 Hz modulation falls in the LF band (0.04-0.15 Hz).
+        let rr = synthetic_rr(0.1, 240.0, 900.0, 45.0);
+        let out = goose_hrv_frequency_v0(&rr);
+        assert!(
+            out.lf_power_ms2 > out.hf_power_ms2,
+            "expected LF>HF, lf={} hf={}",
+            out.lf_power_ms2,
+            out.hf_power_ms2
+        );
+        assert!(out.lf_hf_ratio > 1.0);
+    }
+
+    #[test]
+    fn frequency_hrv_rejects_short_window() {
+        let rr = synthetic_rr(0.25, 60.0, 900.0, 40.0); // under 120s
+        let out = goose_hrv_frequency_v0(&rr);
+        assert!(out.quality_flags.contains(&"hrv_freq_window_too_short".to_string()));
+        assert_eq!(out.total_power_ms2, 0.0);
     }
 }

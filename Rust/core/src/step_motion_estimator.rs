@@ -933,3 +933,85 @@ fn issue_action(issue: &str) -> &'static str {
         _ => "Resolve this raw-motion step estimator blocker before using estimated steps.",
     }
 }
+
+/// Coarse activity class inferred from a motion window's cadence and energy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivityClass {
+    Rest,
+    Walk,
+    Run,
+}
+
+impl ActivityClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ActivityClass::Rest => "rest",
+            ActivityClass::Walk => "walk",
+            ActivityClass::Run => "run",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActivityClassification {
+    pub class: ActivityClass,
+    pub confidence: f64,
+}
+
+/// Classify a motion window from cadence (steps/min), accelerometer RMS amplitude
+/// (g, gravity removed) and gyroscope RMS (deg/s):
+///   low cadence and low accel energy -> rest;
+///   high cadence or high accel/gyro energy -> run;
+///   in between -> walk.
+pub fn classify_activity(
+    cadence_spm: f64,
+    accel_rms_g: f64,
+    gyro_rms_dps: f64,
+) -> ActivityClassification {
+    if cadence_spm < 40.0 && accel_rms_g < 0.08 {
+        let confidence = clamp_unit(1.0 - cadence_spm / 40.0);
+        return ActivityClassification {
+            class: ActivityClass::Rest,
+            confidence,
+        };
+    }
+    if cadence_spm >= 130.0 || accel_rms_g >= 0.6 || gyro_rms_dps >= 150.0 {
+        let drive = (cadence_spm / 160.0).max(accel_rms_g / 0.9);
+        return ActivityClassification {
+            class: ActivityClass::Run,
+            confidence: clamp_unit(drive),
+        };
+    }
+    // Confidence peaks near a typical ~110 spm walking cadence.
+    let confidence = clamp_unit(1.0 - (cadence_spm - 110.0).abs() / 110.0);
+    ActivityClassification {
+        class: ActivityClass::Walk,
+        confidence,
+    }
+}
+
+fn clamp_unit(value: f64) -> f64 {
+    value.clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod activity_class_tests {
+    use super::*;
+
+    #[test]
+    fn classifies_rest_walk_run() {
+        assert_eq!(classify_activity(0.0, 0.02, 5.0).class, ActivityClass::Rest);
+        assert_eq!(classify_activity(105.0, 0.25, 40.0).class, ActivityClass::Walk);
+        assert_eq!(classify_activity(165.0, 0.8, 200.0).class, ActivityClass::Run);
+        // High accel energy alone (bursty effort) reads as run.
+        assert_eq!(classify_activity(60.0, 0.7, 30.0).class, ActivityClass::Run);
+    }
+
+    #[test]
+    fn confidence_is_unit_bounded() {
+        for cadence in [0.0, 50.0, 110.0, 200.0] {
+            let out = classify_activity(cadence, 0.3, 50.0);
+            assert!((0.0..=1.0).contains(&out.confidence));
+        }
+    }
+}
