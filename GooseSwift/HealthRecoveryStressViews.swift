@@ -74,45 +74,11 @@ struct RecoveryV2OverviewPage: View {
                   value: store.recoveryRespiratoryRateDisplayText(for: selectedDate)
                 )
                 .frame(height: 96)
-
-                SleepV2StatCard(
-                  palette: palette,
-                  systemImage: "drop.fill",
-                  label: "Oxygen Saturation",
-                  value: store.recoveryOxygenSaturationDisplayText(for: selectedDate)
-                )
-                .frame(height: 96)
               }
-
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "thermometer.medium",
-                label: "Wrist Temperature",
-                value: store.recoveryWristTemperatureDisplayText(for: selectedDate)
-              )
-              .frame(height: 96)
 
               SleepV2CoachingCard(palette: palette, tip: coachTip) {
                 openCoachTip()
               }
-
-              SleepV2SectionHeader(title: "Timeline", palette: palette)
-
-              RecoveryV2EmptyStateCard(
-                palette: palette,
-                systemImage: "timeline.selection",
-                title: "No recovery timeline",
-                value: "0 events"
-              )
-
-              SleepV2SectionHeader(title: "Insights", palette: palette)
-
-              RecoveryV2EmptyStateCard(
-                palette: palette,
-                systemImage: "sparkles",
-                title: "No recovery insights",
-                value: "0 signals"
-              )
 
               SleepV2SectionHeader(title: "Trends", palette: palette)
 

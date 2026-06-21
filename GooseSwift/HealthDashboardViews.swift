@@ -499,19 +499,43 @@ struct HealthMonitorView: View {
     GridItem(.flexible(), spacing: 10),
   ]
 
+  private struct MonitorCardGroup {
+    let title: String
+    let ids: [String]
+  }
+
+  private static let cardGroups: [MonitorCardGroup] = [
+    MonitorCardGroup(
+      title: "Core Vitals",
+      ids: ["respiratory-rate", "resting-hr", "resting-hrv", "health-sleep", "skin-temp-trend"]
+    ),
+    MonitorCardGroup(title: "Heart Rate", ids: ["mean-hr-today", "max-hr-today"]),
+    MonitorCardGroup(title: "Advanced HRV", ids: ["hrv-sd1", "hrv-sd2", "autonomic-balance"]),
+    MonitorCardGroup(title: "Fitness", ids: ["vo2max"]),
+  ]
+
   var body: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
-        HealthHero(snapshot: store.snapshot(for: .healthMonitor), subtitle: "Vitals, timeline, and primary sleep inputs")
+        HealthHero(snapshot: store.snapshot(for: .healthMonitor), subtitle: "Your vitals, grouped — wear the band for live values, sync for history")
 
-        LazyVGrid(columns: columns, spacing: 10) {
-          ForEach(store.healthMonitorSnapshots()) { snapshot in
-            Button {
-              selectedTrend = snapshot
-            } label: {
-              HealthMetricCard(snapshot: snapshot)
+        let monitorSnapshots = store.healthMonitorSnapshots()
+        ForEach(Self.cardGroups, id: \.title) { group in
+          let groupSnapshots = group.ids.compactMap { id in
+            monitorSnapshots.first { $0.id == id }
+          }
+          if !groupSnapshots.isEmpty {
+            HealthSectionTitle(group.title)
+            LazyVGrid(columns: columns, spacing: 10) {
+              ForEach(groupSnapshots) { snapshot in
+                Button {
+                  selectedTrend = snapshot
+                } label: {
+                  HealthMetricCard(snapshot: snapshot)
+                }
+                .buttonStyle(.plain)
+              }
             }
-            .buttonStyle(.plain)
           }
         }
 

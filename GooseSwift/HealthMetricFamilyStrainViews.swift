@@ -490,14 +490,6 @@ struct StrainV2OverviewPage: View {
               zoneMinutes: store.heartRateZoneDurationMinutes(for: selectedDate)
             )
 
-            SleepV2SectionHeader(title: "Activities", palette: palette)
-            StrainV2EmptyStateCard(
-              palette: palette,
-              systemImage: "figure.run.circle",
-              title: "No activities",
-              message: store.strainEmptyStateSummary()
-            )
-
             SleepV2SectionHeader(title: "Trends", palette: palette)
             if trendRows.isEmpty {
               StrainV2EmptyStateCard(
