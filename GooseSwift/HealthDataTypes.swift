@@ -244,6 +244,10 @@ struct StressAlgorithmSummary {
   let freshness: String
   let confidence: Double?
   let inputSummary: String
+  /// Stress over awake windows that do not overlap a recorded activity session.
+  var nonActivityStress: Double? = nil
+  /// Stress over sleep windows.
+  var sleepStress: Double? = nil
 
   var hasData: Bool {
     score != nil && !windows.isEmpty

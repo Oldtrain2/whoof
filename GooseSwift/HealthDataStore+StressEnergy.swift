@@ -114,6 +114,30 @@ extension HealthDataStore {
     let highMinutes = windows.filter { $0.stress >= 66 }.reduce(0.0) { $0 + $1.durationMinutes }
     let mediumMinutes = windows.filter { $0.stress >= 33 && $0.stress < 66 }.reduce(0.0) { $0 + $1.durationMinutes }
     let lowMinutes = max(totalMinutes - highMinutes - mediumMinutes, 0)
+
+    // Split stress by context: activity-session overlap and sleep. Non-activity
+    // stress is the awake, non-exercise load WHOOP surfaces separately from the
+    // elevation that simply comes from working out.
+    let activityIntervals = cardioLoadActivitySessions(from: dayStart, to: dayEnd)
+      .compactMap { session -> (Date, Date)? in
+        guard let startMs = Self.int64Value(session["start_time_unix_ms"]),
+              let endMs = Self.int64Value(session["end_time_unix_ms"]),
+              endMs > startMs else {
+          return nil
+        }
+        return (
+          Date(timeIntervalSince1970: Double(startMs) / 1000),
+          Date(timeIntervalSince1970: Double(endMs) / 1000)
+        )
+      }
+    func overlapsActivity(_ window: StressWindowPoint) -> Bool {
+      activityIntervals.contains { window.start < $0.1 && window.end > $0.0 }
+    }
+    let nonActivityStress = Self.weightedStress(
+      windows.filter { !$0.isSleepWindow && !overlapsActivity($0) }
+    )
+    let sleepStress = Self.weightedStress(windows.filter(\.isSleepWindow))
+
     let sampleConfidence = Self.clamp(Double(samples.count) / 120.0, min: 0, max: 1)
     let windowConfidence = Self.clamp(Double(windows.count) / 18.0, min: 0, max: 1)
     let stressConfidence = Self.clamp(0.32 + sampleConfidence * 0.42 + windowConfidence * 0.18, min: 0.32, max: 0.88)
@@ -138,7 +162,9 @@ extension HealthDataStore {
       source: .localEstimate("goose.stress.hr_proxy.v1 | confidence=\(confidenceText) | \(inputSummary)"),
       freshness: Self.relativeText(for: samples.last?.capturedAt) ?? "Today",
       confidence: stressConfidence,
-      inputSummary: inputSummary
+      inputSummary: inputSummary,
+      nonActivityStress: nonActivityStress,
+      sleepStress: sleepStress
     )
 
     // Bound the cache: only a few distinct day/sample signatures are ever live
@@ -397,6 +423,25 @@ extension HealthDataStore {
         name: "stress_score", value: score, unit: "score",
         source: "goose.stress.v1", confidence: stress.confidence, dateKey: window.dateKey)
     }
+    if let nonActivity = stress.nonActivityStress {
+      writeDailyNamedMetric(
+        name: "non_activity_stress", value: nonActivity, unit: "score",
+        source: "goose.stress.v1", confidence: stress.confidence, dateKey: window.dateKey)
+    }
+    if let sleepStress = stress.sleepStress {
+      writeDailyNamedMetric(
+        name: "sleep_stress", value: sleepStress, unit: "score",
+        source: "goose.stress.v1", confidence: stress.confidence, dateKey: window.dateKey)
+    }
+  }
+
+  /// Sample-weighted mean stress over the given windows, or nil if none.
+  static func weightedStress(_ windows: [StressWindowPoint]) -> Double? {
+    let total = windows.reduce(0) { $0 + $1.sampleCount }
+    guard total > 0 else {
+      return nil
+    }
+    return windows.reduce(0.0) { $0 + $1.stress * Double($1.sampleCount) } / Double(total)
   }
 
   private func writeDailyNamedMetric(
