@@ -23,7 +23,7 @@ use whoof_core::{
     metrics::{GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION, built_in_algorithm_definitions},
     protocol::{
         DeviceType, PACKET_TYPE_EVENT, PACKET_TYPE_HISTORICAL_DATA, PACKET_TYPE_REALTIME_RAW_DATA,
-        build_v5_payload_frame, parse_frame_hex,
+        build_gen4_payload_frame, build_v5_payload_frame, parse_frame_hex,
     },
     recovery_rollup::{
         GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_ID, GOOSE_RECOVERY_UNAVAILABLE_STATUS_V0_VERSION,
@@ -8408,6 +8408,78 @@ fn c_abi_bridge_roundtrips_json_and_allows_freeing_results() {
 
 fn request(value: serde_json::Value) -> BridgeResponse {
     serde_json::from_str(&handle_bridge_request_json(&value.to_string())).unwrap()
+}
+
+#[test]
+fn bridge_promotes_gen4_sync_raw_notifications_into_decoded_frames() {
+    // End-to-end of the "No local data" fix: a WHOOP 4.0 history sync mirrors
+    // frames to ble_raw_notifications (capture is off during sync), and the
+    // promotion step decodes them into decoded_frames where metrics read them.
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = tempdir.path().join("goose.sqlite");
+    let db_path = db.display().to_string();
+
+    let payload = vec![PACKET_TYPE_HISTORICAL_DATA, 0x00, 0x00, 0x10, 0x20, 0x30, 0x40];
+    let frame = build_gen4_payload_frame(&payload);
+    let frame_hex = hex::encode(&frame);
+
+    {
+        let store = GooseStore::open(&db).unwrap();
+        store
+            .mirror_overnight_batch(
+                &[],
+                &[whoof_core::store::OvernightRawNotificationInput {
+                    session_id: "sess-promote",
+                    captured_at: "2026-06-21T08:00:00Z",
+                    source: "ios.corebluetooth.notification",
+                    device_id: None,
+                    active_device_name: Some("WHOOP 4.0"),
+                    connection_state: None,
+                    service_uuid: None,
+                    characteristic_uuid: "61080001-0000-1000-8000-00805f9b34fb",
+                    device_type: Some("GEN4"),
+                    command_or_event: None,
+                    packet_type: None,
+                    k_revision: None,
+                    sequence: Some(0),
+                    frame_hex: &frame_hex,
+                    payload_hex: None,
+                    byte_count: frame.len() as i64,
+                    decode_status: "raw",
+                }],
+                &[],
+            )
+            .unwrap();
+
+        assert!(
+            store.decoded_frames_between("0000", "9999").unwrap().is_empty(),
+            "synced frame should not be in decoded_frames before promotion"
+        );
+    }
+
+    let response = request(serde_json::json!({
+        "schema": "goose.bridge.request.v1",
+        "request_id": "promote-gen4-1",
+        "method": "overnight.promote_raw_notifications",
+        "args": { "database_path": db_path }
+    }));
+    assert!(response.ok, "{:?}", response.error);
+    let result = response.result.unwrap();
+    assert_eq!(result["candidate_count"], 1);
+    assert_eq!(result["skipped_device_type"], 0);
+
+    let store = GooseStore::open(&db).unwrap();
+    let frames = store.decoded_frames_between("0000", "9999").unwrap();
+    assert_eq!(
+        frames.len(),
+        1,
+        "promotion should land the synced Gen4 frame in decoded_frames"
+    );
+    assert!(
+        frames[0].device_type.contains('4'),
+        "expected Gen4 device_type, got {}",
+        frames[0].device_type
+    );
 }
 
 fn seed_recovery_calibration(db: &std::path::Path) {
