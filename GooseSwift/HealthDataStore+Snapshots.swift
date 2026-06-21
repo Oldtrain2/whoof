@@ -415,11 +415,23 @@ extension HealthDataStore {
   }
 
   func whoopStepsDisplayText(for date: Date = Date(), calendar: Calendar = .current) -> String {
-    guard let metric = stepMetric(for: date, calendar: calendar),
-          let steps = Self.intValue(metric["steps"]) else {
-      return "--"
+    if let metric = stepMetric(for: date, calendar: calendar),
+       let steps = Self.intValue(metric["steps"]) {
+      return Self.groupedIntegerText(steps)
     }
-    return Self.groupedIntegerText(steps)
+    // WHOOP 4.0 fallback: no device step counter, so show the raw-motion estimate.
+    if calendar.isDate(date, inSameDayAs: Date()), let estimate = rawMotionStepEstimate(), estimate > 0 {
+      return Self.groupedIntegerText(estimate)
+    }
+    return "--"
+  }
+
+  /// Estimated steps for today from the raw-motion estimator report, if any.
+  func rawMotionStepEstimate() -> Int? {
+    guard let report = packetInputReports["raw_motion_step_estimate"] else {
+      return nil
+    }
+    return Self.intValue(report["estimated_steps"])
   }
 
   func whoopActiveCaloriesDisplayText(for date: Date = Date(), calendar: Calendar = .current) -> String {
@@ -483,6 +495,9 @@ extension HealthDataStore {
     }
     guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
       return .unavailable("selected date has no stored WHOOP step metric")
+    }
+    if let estimate = rawMotionStepEstimate(), estimate > 0 {
+      return .localEstimate("raw-motion step estimate (WHOOP 4.0 has no device counter)")
     }
     if let report = packetInputReports["step_counter_rollup"] {
       return .unavailable(firstPacketAction(in: report) ?? "WHOOP step counter rollup blocked")

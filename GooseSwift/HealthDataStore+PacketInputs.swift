@@ -61,6 +61,13 @@ extension HealthDataStore {
         method: "metrics.step_counter_daily_rollup",
         args: stepCounterDailyRollupArgs(databasePath: databasePath, writeMetric: true)
       )
+      // WHOOP 4.0 has no device step counter, so also compute the raw-motion step
+      // estimate. The UI surfaces its estimated_steps as a flagged estimate when
+      // no device/validated step metric exists.
+      reports["raw_motion_step_estimate"] = try bridge.request(
+        method: "metrics.raw_motion_step_estimate",
+        args: rawMotionStepEstimateArgs(databasePath: databasePath)
+      )
       reports["step_counter_hourly_rollup"] = try bridge.request(
         method: "metrics.step_counter_hourly_rollup",
         args: stepCounterHourlyRollupArgs(databasePath: databasePath, writeMetric: true)
@@ -153,6 +160,19 @@ extension HealthDataStore {
       "end_time_unix_ms": window.endTimeUnixMS,
       "min_sample_count": 2,
       "write_metric": writeMetric,
+    ]
+  }
+
+  nonisolated static func rawMotionStepEstimateArgs(databasePath: String) -> [String: Any] {
+    let window = currentDailyMetricWindow()
+    return [
+      "database_path": databasePath,
+      "start": window.startISO,
+      "end": window.endISO,
+      "date_key": window.dateKey,
+      "timezone": window.timezone,
+      "require_trusted_evidence": false,
+      "write_metric": true,
     ]
   }
 

@@ -131,11 +131,26 @@ extension WhoofBLEClient {
       selectedDeviceID = nil
     }
     isScanning = true
+
+    // A WHOOP already connected at the iOS level (paired in Settings but not
+    // linked to the app) won't re-advertise, so a scan can't see it. Grab it
+    // directly and connect.
+    for peripheral in central.retrieveConnectedPeripherals(withServices: whoopServices)
+    where whoopIdentityEvidence(for: peripheral) != nil {
+      peripherals[peripheral.identifier] = peripheral
+      record(source: "ble", title: "scan.retrieve_connected", body: peripheral.identifier.uuidString)
+      connect(peripheral, reason: "scan.retrieve_connected")
+    }
+
+    // Scan UNFILTERED: WHOOP straps advertise a name but not their service UUID,
+    // so scanForPeripherals(withServices: whoopServices) never surfaces them.
+    // didDiscover identifies the strap by name/service and rejects everything
+    // else, so an unfiltered scan is the only way to discover a WHOOP 4.0/5.0.
     central.scanForPeripherals(
-      withServices: whoopServices,
+      withServices: nil,
       options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
     )
-    record(source: "ble", title: "scan.started", body: "reason=\(reason) services=\(uuidList(whoopServices))")
+    record(source: "ble", title: "scan.started", body: "reason=\(reason) services=all")
   }
 
   func stopScan(reason: String) {
