@@ -141,14 +141,14 @@ extension HealthDataStore {
       "sleep_end": "9999",
       "prior_strain_start": "0000",
       "prior_strain_end": "9999",
-      "resting_baseline_min_days": 3,
+      "resting_baseline_min_days": 1,
       "hrv_min_rr_intervals_to_compute": 2,
-      "hrv_baseline_min_days": 3,
+      "hrv_baseline_min_days": 1,
       "sleep_need_minutes": 480.0,
       "low_motion_threshold_0_to_1": 0.05,
       "disturbance_motion_threshold_0_to_1": 0.20,
       "target_midpoint_minutes_since_midnight": 180.0,
-      "prior_strain_resting_baseline_min_days": 3,
+      "prior_strain_resting_baseline_min_days": 1,
     ]
   }
 

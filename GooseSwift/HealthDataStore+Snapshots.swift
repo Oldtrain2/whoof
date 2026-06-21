@@ -14,7 +14,7 @@ extension HealthDataStore {
         args: baseArgs.merging([
           "resting_start": "0000",
           "resting_end": "9999",
-          "resting_baseline_min_days": 3,
+          "resting_baseline_min_days": 1,
         ]) { _, new in new }
       )
       packetScoreReports["recovery"] = try bridge.request(
@@ -30,9 +30,9 @@ extension HealthDataStore {
           "hrv_end": "9999",
           "hrv_baseline_start": "0000",
           "hrv_baseline_end": "9999",
-          "resting_baseline_min_days": 3,
+          "resting_baseline_min_days": 1,
           "hrv_min_rr_intervals_to_compute": 2,
-          "hrv_baseline_min_days": 3,
+          "hrv_baseline_min_days": 1,
         ]) { _, new in new }
       )
       packetScoreStatus = "Bridge packet-derived scores recomputed"

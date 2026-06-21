@@ -41,7 +41,7 @@ extension HealthDataStore {
         method: "metrics.hrv_features",
         args: baseArgs.merging([
           "min_rr_intervals_to_compute": 2,
-          "baseline_min_days": 3,
+          "baseline_min_days": 1,
           "require_baseline": false,
         ]) { _, new in new }
       )
@@ -49,7 +49,7 @@ extension HealthDataStore {
       reports["resting_hr"] = try bridge.request(
         method: "metrics.resting_hr_features",
         args: baseArgs.merging([
-          "baseline_min_days": 3,
+          "baseline_min_days": 1,
           "require_baseline": false,
         ]) { _, new in new }
       )
@@ -140,7 +140,7 @@ extension HealthDataStore {
       "end": window.endISO,
       "min_owned_captures": 2,
       "require_trusted_evidence": false,
-      "baseline_min_days": 3,
+      "baseline_min_days": 1,
       "require_baseline": false,
       "min_sample_count": 2,
       "write_metric": writeMetric,
