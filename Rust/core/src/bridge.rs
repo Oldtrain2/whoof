@@ -2311,6 +2311,12 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(overnight_mirror_counts_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "overnight.promote_raw_notifications" => {
+            request_args::<PromoteOvernightRawArgs>(&request)
+                .and_then(promote_overnight_raw_notifications_bridge)
+                .map(|value| bridge_ok(&request.request_id, value))
+                .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error))
+        }
         "capture.timeline" => request_args::<CaptureTimelineArgs>(&request)
             .and_then(capture_timeline_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -5640,6 +5646,83 @@ fn overnight_mirror_counts_bridge(
     serde_json::to_value(counts).map_err(|error| {
         GooseError::message(format!("cannot serialize overnight mirror counts: {error}"))
     })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PromoteOvernightRawArgs {
+    database_path: String,
+    #[serde(default)]
+    start: Option<String>,
+    #[serde(default)]
+    end: Option<String>,
+}
+
+/// Promote mirrored history-sync raw notifications into decoded_frames so the
+/// metrics (which only read decoded_frames) see synced WHOOP 4.0 data. The live
+/// capture session is stopped during a sync, so without this the synced frames
+/// never decode. Idempotent: evidence_id is the frame sha256, and the underlying
+/// inserts are INSERT OR IGNORE.
+fn promote_overnight_raw_notifications_bridge(
+    args: PromoteOvernightRawArgs,
+) -> GooseResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let rows = store.overnight_raw_notification_frames(args.start.as_deref(), args.end.as_deref())?;
+    let candidate_count = rows.len();
+    let mut skipped_device_type = 0usize;
+    let frames: Vec<CapturedFrameInput> = rows
+        .into_iter()
+        .filter_map(|row| {
+            let device_type = match parse_device_type(&row.device_type) {
+                Ok(device_type) => device_type,
+                Err(_) => {
+                    skipped_device_type += 1;
+                    return None;
+                }
+            };
+            let device_model = if row.active_device_name.is_empty() {
+                "WHOOP".to_string()
+            } else {
+                row.active_device_name
+            };
+            Some(CapturedFrameInput {
+                evidence_id: format!("overnight.{}", row.sha256),
+                frame_id: Some(format!("overnight.{}.frame.0", row.sha256)),
+                source: row.source,
+                captured_at: row.captured_at,
+                device_model,
+                frame_hex: row.frame_hex,
+                sensitivity: "standard".to_string(),
+                capture_session_id: Some(row.session_id),
+                device_type,
+            })
+        })
+        .collect();
+    let report = import_captured_frame_batch_with_output_options(
+        &store,
+        &frames,
+        CapturedFrameBatchOptions {
+            parser_version: "goose.overnight.promote.v1",
+        },
+        CapturedFrameBatchOutputOptions::default(),
+    )?;
+    let mut value = serde_json::to_value(&report).map_err(|error| {
+        GooseError::message(format!("cannot serialize promotion report: {error}"))
+    })?;
+    if let serde_json::Value::Object(map) = &mut value {
+        map.insert(
+            "schema".to_string(),
+            serde_json::Value::String("goose.overnight-promote.v1".to_string()),
+        );
+        map.insert(
+            "candidate_count".to_string(),
+            serde_json::Value::from(candidate_count),
+        );
+        map.insert(
+            "skipped_device_type".to_string(),
+            serde_json::Value::from(skipped_device_type),
+        );
+    }
+    Ok(value)
 }
 
 fn capture_timeline_bridge(args: CaptureTimelineArgs) -> GooseResult<serde_json::Value> {

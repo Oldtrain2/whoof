@@ -318,6 +318,17 @@ pub struct OvernightHistoricalRangePollInput<'a> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OvernightRawFrameRow {
+    pub session_id: String,
+    pub captured_at: String,
+    pub source: String,
+    pub active_device_name: String,
+    pub device_type: String,
+    pub frame_hex: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OvernightMirrorReport {
     pub schema: String,
     pub session_upserted: usize,
@@ -1534,6 +1545,41 @@ impl GooseStore {
 
             Ok(report)
         })
+    }
+
+    /// Read mirrored raw history-sync notifications so they can be promoted into
+    /// decoded_frames. During a sync the live capture session is stopped, so
+    /// these rows are the only record of the synced frames; nothing else reads
+    /// them back. Optionally bounded by captured_at window to cap work.
+    pub fn overnight_raw_notification_frames(
+        &self,
+        start: Option<&str>,
+        end: Option<&str>,
+    ) -> GooseResult<Vec<OvernightRawFrameRow>> {
+        self.ensure_overnight_mirror_tables()?;
+        let start = start.unwrap_or("0000");
+        let end = end.unwrap_or("9999");
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT session_id, captured_at, source, active_device_name, device_type, frame_hex, sha256
+            FROM ble_raw_notifications
+            WHERE captured_at >= ?1 AND captured_at < ?2
+            ORDER BY captured_at, sequence
+            "#,
+        )?;
+        let rows = statement.query_map(params![start, end], |row| {
+            Ok(OvernightRawFrameRow {
+                session_id: row.get(0)?,
+                captured_at: row.get(1)?,
+                source: row.get(2)?,
+                active_device_name: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                device_type: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                frame_hex: row.get(5)?,
+                sha256: row.get(6)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(GooseError::from)
     }
 
     pub fn overnight_mirror_counts(&self, session_id: &str) -> GooseResult<OvernightMirrorCounts> {

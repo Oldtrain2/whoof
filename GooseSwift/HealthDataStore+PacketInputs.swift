@@ -6,6 +6,15 @@ import UIKit
 extension HealthDataStore {
   nonisolated static func packetInputBridgeReports(databasePath: String) -> Result<[String: [String: Any]], Error> {
     let bridge = WhoofRustBridge()
+    // Promote history-sync raw notifications into decoded_frames first. The live
+    // capture session is stopped during a sync, so synced WHOOP 4.0 frames land
+    // only in ble_raw_notifications; this decodes them so the extractors below
+    // (and every metric reading decoded_frames) actually see synced data.
+    // Idempotent (frame sha256 + INSERT OR IGNORE).
+    _ = try? bridge.request(
+      method: "overnight.promote_raw_notifications",
+      args: ["database_path": databasePath]
+    )
     let baseArgs: [String: Any] = [
       "database_path": databasePath,
       "start": "0000",
