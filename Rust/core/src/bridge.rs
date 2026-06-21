@@ -2116,6 +2116,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(hrv_features_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.hrv_advanced" => request_args::<HrvFeaturesArgs>(&request)
+            .and_then(hrv_advanced_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.hrv_capture_validation" => request_args::<HrvCaptureValidationArgs>(&request)
             .and_then(hrv_capture_validation_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -4063,6 +4067,54 @@ fn hrv_features_bridge(args: HrvFeaturesArgs) -> GooseResult<serde_json::Value> 
         report.score_result.as_ref(),
     )?;
     Ok(value)
+}
+
+fn hrv_advanced_bridge(args: HrvFeaturesArgs) -> GooseResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let report = run_hrv_feature_report_for_store(
+        &store,
+        &args.database_path,
+        &args.start,
+        &args.end,
+        HrvFeatureOptions {
+            min_owned_captures_per_summary: args
+                .min_owned_captures
+                .unwrap_or(DEFAULT_MIN_OWNED_CAPTURES_PER_SUMMARY),
+            require_trusted_evidence: args.require_trusted_evidence,
+            min_rr_intervals_to_compute: args.min_rr_intervals_to_compute.unwrap_or(2),
+            baseline_min_days: args.baseline_min_days.unwrap_or(3),
+            require_baseline: args.require_baseline,
+        },
+    )?;
+    let rr_intervals_ms: Vec<f64> = report
+        .hrv_input
+        .as_ref()
+        .map(|input| input.rr_intervals_ms.clone())
+        .unwrap_or_default();
+    let frequency = crate::respiratory_rsa::goose_hrv_frequency_v0(&rr_intervals_ms);
+    let hrv = report
+        .score_result
+        .as_ref()
+        .and_then(|result| result.output.as_ref());
+    Ok(json!({
+        "schema": "goose.hrv-advanced.v1",
+        "generated_by": "goose-bridge",
+        "available": hrv.is_some(),
+        "rmssd_ms": hrv.map(|o| o.rmssd_ms),
+        "sdnn_ms": hrv.map(|o| o.sdnn_ms),
+        "pnn50_fraction": hrv.map(|o| o.pnn50_fraction),
+        "sd1_ms": hrv.map(|o| o.sd1_ms),
+        "sd2_ms": hrv.map(|o| o.sd2_ms),
+        "sd1_sd2_ratio": hrv.map(|o| o.sd1_sd2_ratio),
+        "frequency_available": frequency.quality_flags.is_empty(),
+        "lf_power_ms2": frequency.lf_power_ms2,
+        "hf_power_ms2": frequency.hf_power_ms2,
+        "lf_hf_ratio": frequency.lf_hf_ratio,
+        "lf_normalized": frequency.lf_normalized,
+        "hf_normalized": frequency.hf_normalized,
+        "window_seconds": frequency.window_seconds,
+        "rr_interval_count": report.rr_interval_count,
+    }))
 }
 
 fn hrv_capture_validation_bridge(args: HrvCaptureValidationArgs) -> GooseResult<serde_json::Value> {

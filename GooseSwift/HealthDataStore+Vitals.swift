@@ -55,6 +55,12 @@ extension HealthDataStore {
       return restingHeartRateHealthMonitorSnapshot(base: snapshot, allowLiveFallbacks: allowLiveFallbacks)
     case "resting-hrv":
       return hrvHealthMonitorSnapshot(base: snapshot)
+    case "hrv-sd1":
+      return hrvAdvancedHealthMonitorSnapshot(base: snapshot, field: .sd1)
+    case "hrv-sd2":
+      return hrvAdvancedHealthMonitorSnapshot(base: snapshot, field: .sd2)
+    case "autonomic-balance":
+      return hrvAdvancedHealthMonitorSnapshot(base: snapshot, field: .lfHfRatio)
     case "oxygen-saturation":
       if let stored = dailyRecoveryMetricSnapshot(
         base: snapshot,
@@ -503,6 +509,77 @@ extension HealthDataStore {
 
   func decodedPacketFrameCount() -> Int {
     Self.intValue(packetInputReports["vital_event"]?["decoded_frame_count"]) ?? 0
+  }
+
+  enum HrvAdvancedField {
+    case sd1
+    case sd2
+    case lfHfRatio
+  }
+
+  /// Advanced HRV cards (Poincare SD1/SD2 and LF/HF autonomic balance) computed
+  /// on-device from RR intervals. Real-data-only: stays Unavailable until a sync
+  /// provides enough RR coverage.
+  func hrvAdvancedHealthMonitorSnapshot(
+    base snapshot: HealthMetricSnapshot,
+    field: HrvAdvancedField
+  ) -> HealthMetricSnapshot {
+    let report = hrvAdvancedReport()
+    let available = (report?["available"] as? Bool) ?? false
+    let frequencyAvailable = (report?["frequency_available"] as? Bool) ?? false
+    let number: (String) -> Double? = { key in report.flatMap { Self.doubleValue($0[key]) } }
+
+    let (value, ready): (String, Bool)
+    switch field {
+    case .sd1:
+      value = Self.numberText(number("sd1_ms"), fractionDigits: 1) ?? "--"
+      ready = available
+    case .sd2:
+      value = Self.numberText(number("sd2_ms"), fractionDigits: 1) ?? "--"
+      ready = available
+    case .lfHfRatio:
+      value = Self.numberText(number("lf_hf_ratio"), fractionDigits: 2) ?? "--"
+      ready = frequencyAvailable
+    }
+
+    guard ready, value != "--" else {
+      return replacingHealthMonitorSnapshot(
+        snapshot,
+        value: "--",
+        unit: snapshot.unit,
+        status: "Unavailable",
+        freshness: "Needs synced RR",
+        provenance: "metrics.hrv_advanced",
+        source: .unavailable("requires synced RR intervals"),
+        trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+      )
+    }
+
+    let method = field == .lfHfRatio ? "frequency-domain" : "Poincare"
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: value,
+      unit: snapshot.unit,
+      status: "Local estimate",
+      freshness: "Computed",
+      provenance: "metrics.hrv_advanced",
+      source: .localEstimate("RR-interval HRV (\(method))"),
+      trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+    )
+  }
+
+  func hrvAdvancedReport() -> [String: Any]? {
+    let window = HealthDataStore.currentDailyMetricWindow()
+    return try? bridge.request(
+      method: "metrics.hrv_advanced",
+      args: [
+        "database_path": databasePath,
+        "start": window.startISO,
+        "end": window.endISO,
+        "require_trusted_evidence": false,
+        "min_rr_intervals_to_compute": 2,
+      ]
+    )
   }
 
   func packetEvidenceFrameCount() -> Int {
