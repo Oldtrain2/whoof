@@ -70,6 +70,8 @@ extension HealthDataStore {
       return liveHeartRateStatSnapshot(base: snapshot, stat: .max)
     case "vo2max":
       return vo2MaxHealthMonitorSnapshot(base: snapshot)
+    case "skin-temp-trend":
+      return skinTempTrendHealthMonitorSnapshot(base: snapshot)
     case "oxygen-saturation":
       if let stored = dailyRecoveryMetricSnapshot(
         base: snapshot,
@@ -697,6 +699,58 @@ extension HealthDataStore {
       freshness: "Live RR RSA",
       provenance: "metrics.hrv_from_rr",
       source: .localEstimate("live RR-interval RSA respiratory rate"),
+      trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+    )
+  }
+
+  func skinTempTrendReport() -> [String: Any]? {
+    let window = HealthDataStore.currentDailyMetricWindow()
+    return try? bridge.request(
+      method: "metrics.gen4_skin_temp_trend",
+      args: [
+        "database_path": databasePath,
+        "start": window.startISO,
+        "end": window.endISO,
+      ]
+    )
+  }
+
+  /// Relative skin-temperature trend (uncalibrated ADC deviation vs baseline).
+  /// Absolute °C is not derivable on Gen4, so this is a direction/relative card
+  /// only, explicitly labeled. Real-data-only: needs synced on-wrist sensor data.
+  func skinTempTrendHealthMonitorSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    guard let report = skinTempTrendReport(),
+          (report["available"] as? Bool) == true,
+          let deviation = Self.doubleValue(report["deviation_raw_adc"]) else {
+      return replacingHealthMonitorSnapshot(
+        snapshot,
+        value: "--",
+        unit: snapshot.unit,
+        status: "Unavailable",
+        freshness: "Needs synced sensor data",
+        provenance: "metrics.gen4_skin_temp_trend",
+        source: .unavailable("skin-temp trend requires synced on-wrist sensor packets"),
+        trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+      )
+    }
+    let rounded = Int(deviation.rounded())
+    let value = rounded > 0 ? "+\(rounded)" : "\(rounded)"
+    let status: String
+    if abs(deviation) < 5 {
+      status = "Near baseline"
+    } else if deviation > 0 {
+      status = "Above baseline"
+    } else {
+      status = "Below baseline"
+    }
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: value,
+      unit: snapshot.unit,
+      status: status,
+      freshness: "Relative, uncalibrated",
+      provenance: "metrics.gen4_skin_temp_trend",
+      source: .localEstimate("uncalibrated skin-temp ADC trend vs baseline"),
       trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
     )
   }

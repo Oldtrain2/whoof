@@ -2124,6 +2124,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(hrv_from_rr_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.gen4_skin_temp_trend" => request_args::<Gen4SkinTempTrendArgs>(&request)
+            .and_then(gen4_skin_temp_trend_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.hrv_capture_validation" => request_args::<HrvCaptureValidationArgs>(&request)
             .and_then(hrv_capture_validation_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
@@ -4077,6 +4081,66 @@ fn hrv_features_bridge(args: HrvFeaturesArgs) -> GooseResult<serde_json::Value> 
 struct HrvFromRrArgs {
     #[serde(default)]
     rr_intervals_ms: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct Gen4SkinTempTrendArgs {
+    database_path: String,
+    #[serde(default = "default_correlation_start")]
+    start: String,
+    #[serde(default = "default_correlation_end")]
+    end: String,
+}
+
+/// Relative skin-temperature trend from the Gen4 raw skin-temp ADC. Absolute °C
+/// is NOT derivable (WHOOP's thermistor calibration is not public), so this only
+/// reports the deviation of the recent reading from the window baseline, in raw
+/// ADC counts, explicitly flagged uncalibrated. On-wrist samples only.
+fn gen4_skin_temp_trend_bridge(args: Gen4SkinTempTrendArgs) -> GooseResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let rows = store.decoded_frames_between(&args.start, &args.end)?;
+    let mut samples: Vec<f64> = Vec::new();
+    for row in &rows {
+        let Ok(ParsedPayload::DataPacket {
+            body_summary: Some(DataPacketBodySummary::Gen4History {
+                sensor: Some(sensor),
+                ..
+            }),
+            ..
+        }) = serde_json::from_str::<ParsedPayload>(&row.parsed_payload_json)
+        else {
+            continue;
+        };
+        if sensor.skin_contact == 0 || sensor.skin_temp_raw == 0 {
+            continue;
+        }
+        samples.push(f64::from(sensor.skin_temp_raw));
+    }
+    let sample_count = samples.len();
+    if sample_count < 10 {
+        return Ok(json!({
+            "schema": "goose.gen4-skin-temp-trend.v1",
+            "available": false,
+            "sample_count": sample_count,
+            "quality_flags": ["insufficient_on_wrist_skin_temp_samples"],
+        }));
+    }
+    let baseline = samples.iter().sum::<f64>() / sample_count as f64;
+    let recent_n = (sample_count / 10).max(1);
+    let recent = samples.iter().rev().take(recent_n).sum::<f64>() / recent_n as f64;
+    Ok(json!({
+        "schema": "goose.gen4-skin-temp-trend.v1",
+        "generated_by": "goose-bridge",
+        "available": true,
+        "sample_count": sample_count,
+        "baseline_raw_adc": baseline,
+        "recent_raw_adc": recent,
+        "deviation_raw_adc": recent - baseline,
+        "quality_flags": [
+            "relative_deviation_from_adc_baseline",
+            "adc_baseline_scale_unverified",
+        ],
+    }))
 }
 
 /// Compute the full HRV + respiratory set directly from a raw RR-interval array
