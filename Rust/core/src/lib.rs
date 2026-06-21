@@ -30,6 +30,7 @@ pub mod protocol;
 pub mod recovery_rollup;
 pub mod reference;
 pub mod report;
+pub mod respiratory_rsa;
 pub mod sleep_validation;
 pub mod step_counter;
 pub mod step_discovery;

@@ -41,6 +41,9 @@ pub struct HrvOutput {
     pub rmssd_ms: f64,
     pub sdnn_ms: f64,
     pub pnn50_fraction: f64,
+    pub sd1_ms: f64,
+    pub sd2_ms: f64,
+    pub sd1_sd2_ratio: f64,
     pub components: Vec<MetricComponent>,
 }
 
@@ -803,6 +806,8 @@ pub fn goose_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
         let rmssd_ms = rmssd(&valid);
         let sdnn_ms = sample_sd(&valid, mean_nn_ms);
         let pnn50_fraction = pnn50(&valid);
+        let (sd1_ms, sd2_ms) = poincare(&valid, sdnn_ms);
+        let sd1_sd2_ratio = if sd2_ms > 0.0 { sd1_ms / sd2_ms } else { 0.0 };
         let interval_count = input.rr_intervals_ms.len();
         let valid_interval_count = valid.len();
         Some(HrvOutput {
@@ -815,6 +820,9 @@ pub fn goose_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
             rmssd_ms,
             sdnn_ms,
             pnn50_fraction,
+            sd1_ms,
+            sd2_ms,
+            sd1_sd2_ratio,
             components: vec![
                 MetricComponent {
                     name: "mean_nn".to_string(),
@@ -835,6 +843,21 @@ pub fn goose_hrv_v0(input: &HrvInput) -> AlgorithmRunResult<HrvOutput> {
                     name: "pnn50".to_string(),
                     value: pnn50_fraction,
                     unit: "fraction".to_string(),
+                },
+                MetricComponent {
+                    name: "sd1".to_string(),
+                    value: sd1_ms,
+                    unit: "ms".to_string(),
+                },
+                MetricComponent {
+                    name: "sd2".to_string(),
+                    value: sd2_ms,
+                    unit: "ms".to_string(),
+                },
+                MetricComponent {
+                    name: "sd1_sd2_ratio".to_string(),
+                    value: sd1_sd2_ratio,
+                    unit: "ratio".to_string(),
                 },
             ],
         })
@@ -1925,6 +1948,19 @@ fn pnn50(values: &[f64]) -> f64 {
         .filter(|pair| (pair[1] - pair[0]).abs() > 50.0)
         .count();
     above_threshold as f64 / (values.len() - 1) as f64
+}
+
+/// Poincare non-linear HRV descriptors. SD1 is short-term (beat-to-beat)
+/// variability, SD2 long-term. SD1 = SDSD / sqrt(2); SD2 = sqrt(2*SDNN^2 - SD1^2).
+fn poincare(values: &[f64], sdnn_ms: f64) -> (f64, f64) {
+    if values.len() < 2 {
+        return (0.0, 0.0);
+    }
+    let diffs: Vec<f64> = values.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    let sdsd = sample_sd(&diffs, mean(&diffs));
+    let sd1 = sdsd / std::f64::consts::SQRT_2;
+    let sd2_squared = (2.0 * sdnn_ms * sdnn_ms - sd1 * sd1).max(0.0);
+    (sd1, sd2_squared.sqrt())
 }
 
 fn stage_minutes(stage_minutes: &BTreeMap<String, f64>, stage: &str) -> Option<f64> {

@@ -117,7 +117,7 @@ fn hrv_definition_and_run_persist_to_sqlite() {
     assert_eq!(saved_run.algorithm_id, GOOSE_HRV_V0_ID);
     assert!(saved_run.output_json.contains("\"rmssd_ms\""));
     let metric_values = store.metric_values_for_run("hrv-run-1").unwrap();
-    assert_eq!(metric_values.len(), 7);
+    assert_eq!(metric_values.len(), 10);
     assert!(metric_values.iter().any(|row| {
         row.metric_value_id == "hrv-run-1.rmssd_ms"
             && row.metric_family == "hrv"
@@ -130,7 +130,7 @@ fn hrv_definition_and_run_persist_to_sqlite() {
             && row.value == 0.0
     }));
     let metric_components = store.metric_components_for_run("hrv-run-1").unwrap();
-    assert_eq!(metric_components.len(), 4);
+    assert_eq!(metric_components.len(), 7);
     assert!(metric_components.iter().any(|row| {
         row.metric_component_id == "hrv-run-1.component.1.rmssd"
             && row.component_name == "rmssd"
