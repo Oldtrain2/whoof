@@ -375,10 +375,11 @@ extension View {
   }
 
   func healthCardSurface() -> some View {
-    background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    background(WhoofTheme.cardSurface, in: RoundedRectangle(cornerRadius: WhoofTheme.cardRadius, style: .continuous))
       .overlay {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .strokeBorder(Color.primary.opacity(0.06))
+        RoundedRectangle(cornerRadius: WhoofTheme.cardRadius, style: .continuous)
+          .strokeBorder(WhoofTheme.cardHairline)
       }
+      .shadow(color: WhoofTheme.cardShadow, radius: 16, x: 0, y: 8)
   }
 }

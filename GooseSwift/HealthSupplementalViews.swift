@@ -166,13 +166,13 @@ struct HealthHero: View {
     VStack(alignment: .leading, spacing: 14) {
       HStack(alignment: .top, spacing: 12) {
         Image(systemName: snapshot.systemImage)
-          .font(.system(size: 28, weight: .bold))
+          .font(.system(size: 26, weight: .bold))
           .foregroundStyle(snapshot.tint)
           .frame(width: 48, height: 48)
-          .background(snapshot.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .background(snapshot.tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         VStack(alignment: .leading, spacing: 4) {
           Text(snapshot.title)
-            .font(.title2.bold())
+            .font(.title2.weight(.bold))
           Text(subtitle)
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -181,20 +181,25 @@ struct HealthHero: View {
         HealthSourceBadge(source: snapshot.source)
       }
 
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
+      // Hero number carries the metric-family color and animates digit changes;
+      // status sits secondary so the value owns the hierarchy.
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
         Text(snapshot.displayValue)
-          .font(.system(size: 36, weight: .bold))
+          .font(.system(size: 48, weight: .heavy, design: .rounded))
+          .foregroundStyle(snapshot.tint)
+          .contentTransition(.numericText())
+          .animation(.snappy(duration: 0.4), value: snapshot.displayValue)
           .lineLimit(1)
-          .minimumScaleFactor(0.7)
+          .minimumScaleFactor(0.6)
         Text(snapshot.status)
           .font(.headline)
-          .foregroundStyle(snapshot.tint)
+          .foregroundStyle(.secondary)
       }
       Text("\(snapshot.freshness) | \(snapshot.provenance)")
         .font(.caption)
         .foregroundStyle(.secondary)
     }
-    .padding(16)
+    .padding(18)
     .healthCardSurface()
   }
 }
