@@ -107,10 +107,21 @@ parsers. 24 protocol tests + Gen4 HR/HRV/IMU feature tests green.
   session durations via new `totalExerciseDurationMinutes` (was "--").
 - [ ] Sleep-window respiratory rate.
 
-## Phase 3 — persistence/quality (not started — needs new Rust bridge endpoints)
-- [ ] Energy Bank daily ledger persistence (new `metrics.daily_energy_bank_*`
-  bridge method + Swift write/read).
-- [ ] Stress daily-window persistence + activity masking.
+## Phase 3 — persistence/quality
+- [x] **Energy Bank + Stress daily persistence (iteration 5).** New generic
+  `daily_named_metrics` store table (date_key, metric_name, value, unit,
+  source_kind, confidence, provenance) + `upsert_daily_named_metric` /
+  `daily_named_metrics_between` (store.rs) + bridge methods
+  `metrics.write_daily_named_metric` / `metrics.read_daily_named_metrics`. Swift
+  `persistDailyEnergyAndStressMetrics()` writes energy_bank_percent/charged/drained
+  + stress_score each packet-input refresh; `dailyNamedMetricSeries(...)` reads them
+  back for trends. Was in-memory only (lost on restart, empty trends). Rust
+  round-trip + replace unit-tested (`daily_named_metrics_round_trip_and_replace`).
+  Note: pre-existing `bridge_tests` failures (ui_coverage audit, step-estimate
+  inputs_json) are unrelated — they fail identically on HEAD.
+- [ ] Wire the persisted series into the Energy Bank / Stress trend ROW rendering
+  (read helper exists; UI hookup + on-device check remain).
+- [ ] Stress activity masking (split activity vs non-activity stress).
 - [ ] Sleep stages from band data vs heuristic.
 
 ## Verification status

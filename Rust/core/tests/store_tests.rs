@@ -15,7 +15,8 @@ use whoof_core::{
         ActivityIntervalInput, ActivityLabelInput, ActivityMetricInput, ActivitySessionInput,
         AlgorithmPreferenceRecord, CURRENT_SCHEMA_VERSION, CalibrationLabelInput,
         CaptureSessionInput, CommandValidationRecord, DailyActivityMetricInput,
-        DailyRecoveryMetricInput, DebugCommandRow, DebugEventRow, DebugSessionRow,
+        DailyNamedMetricInput, DailyRecoveryMetricInput, DebugCommandRow, DebugEventRow,
+        DebugSessionRow,
         DecodedFrameInput, ExternalSleepSessionInput, ExternalSleepStageInput, GooseStore,
         HourlyActivityMetricInput, MetricDebugFeatureInput, MetricProvenanceInput,
         RawEvidenceInput, StepCounterSampleInput,
@@ -24,6 +25,87 @@ use whoof_core::{
 use serde_json::json;
 
 const GET_HELLO_FRAME: &str = "aa0108000001e67123019101363e5c8d";
+
+#[test]
+fn daily_named_metrics_round_trip_and_replace() {
+    let store = GooseStore::open_in_memory().unwrap();
+    let provenance = json!({"source": "goose.energy_bank.v1"}).to_string();
+
+    // Write three days of an Energy Bank percent series plus one stress value.
+    for (date_key, value) in [
+        ("2026-06-19", 55.0),
+        ("2026-06-20", 62.0),
+        ("2026-06-21", 48.0),
+    ] {
+        let inserted = store
+            .upsert_daily_named_metric(DailyNamedMetricInput {
+                date_key,
+                metric_name: "energy_bank_percent",
+                value,
+                unit: "percent",
+                source_kind: "local_estimate",
+                confidence: Some(0.7),
+                provenance_json: &provenance,
+            })
+            .unwrap();
+        assert!(inserted);
+    }
+    store
+        .upsert_daily_named_metric(DailyNamedMetricInput {
+            date_key: "2026-06-21",
+            metric_name: "stress_score",
+            value: 33.0,
+            unit: "score",
+            source_kind: "local_estimate",
+            confidence: None,
+            provenance_json: "{}",
+        })
+        .unwrap();
+
+    // Range read returns only the requested metric, ordered by day.
+    let series = store
+        .daily_named_metrics_between("energy_bank_percent", "2026-06-19", "2026-06-21")
+        .unwrap();
+    assert_eq!(series.len(), 3);
+    assert_eq!(series[0].date_key, "2026-06-19");
+    assert_eq!(series[0].value, 55.0);
+    assert_eq!(series[2].value, 48.0);
+    assert_eq!(series[0].confidence, Some(0.7));
+
+    // A narrower window excludes out-of-range days.
+    let narrow = store
+        .daily_named_metrics_between("energy_bank_percent", "2026-06-20", "2026-06-20")
+        .unwrap();
+    assert_eq!(narrow.len(), 1);
+    assert_eq!(narrow[0].value, 62.0);
+
+    // Re-writing the same (date_key, metric_name) replaces rather than appends.
+    let changed = store
+        .upsert_daily_named_metric(DailyNamedMetricInput {
+            date_key: "2026-06-21",
+            metric_name: "energy_bank_percent",
+            value: 51.0,
+            unit: "percent",
+            source_kind: "local_estimate",
+            confidence: Some(0.8),
+            provenance_json: &provenance,
+        })
+        .unwrap();
+    assert!(changed);
+    let replaced = store
+        .daily_named_metrics_between("energy_bank_percent", "2026-06-19", "2026-06-21")
+        .unwrap();
+    assert_eq!(replaced.len(), 3, "replace must not append a duplicate day");
+    assert_eq!(replaced[2].value, 51.0);
+
+    // Distinct metric_name is isolated from the energy series.
+    let stress = store
+        .daily_named_metrics_between("stress_score", "2026-06-19", "2026-06-21")
+        .unwrap();
+    assert_eq!(stress.len(), 1);
+    assert_eq!(stress[0].value, 33.0);
+    assert_eq!(stress[0].confidence, None);
+}
 const GET_HELLO_RESPONSE_FRAME: &str = "aa010c000001e7412409910100000000401adc66";
 const COMMAND_SERVICE_UUID: &str = "61080001-0000-1000-8000-00805f9b34fb";
 const COMMAND_CHARACTERISTIC_UUID: &str = "61080002-0000-1000-8000-00805f9b34fb";

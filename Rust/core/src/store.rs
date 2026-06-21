@@ -440,6 +440,33 @@ pub struct DailyActivityMetricRow {
     pub updated_at: String,
 }
 
+/// A single named daily metric value (e.g. `energy_bank_percent`,
+/// `stress_score`). A generic `(date_key, metric_name) -> value` store used to
+/// persist app-computed daily summaries so trends survive app restarts.
+#[derive(Debug, Clone)]
+pub struct DailyNamedMetricInput<'a> {
+    pub date_key: &'a str,
+    pub metric_name: &'a str,
+    pub value: f64,
+    pub unit: &'a str,
+    pub source_kind: &'a str,
+    pub confidence: Option<f64>,
+    pub provenance_json: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DailyNamedMetricRow {
+    pub date_key: String,
+    pub metric_name: String,
+    pub value: f64,
+    pub unit: String,
+    pub source_kind: String,
+    pub confidence: Option<f64>,
+    pub provenance_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct HourlyActivityMetricInput<'a> {
     pub hourly_metric_id: &'a str,
@@ -1092,6 +1119,24 @@ impl GooseStore {
                 ON daily_activity_metrics(start_time_unix_ms, end_time_unix_ms);
             CREATE INDEX IF NOT EXISTS idx_daily_activity_metrics_by_source_kind
                 ON daily_activity_metrics(source_kind);
+
+            CREATE TABLE IF NOT EXISTS daily_named_metrics (
+                daily_named_metric_id TEXT PRIMARY KEY,
+                date_key TEXT NOT NULL,
+                metric_name TEXT NOT NULL,
+                value REAL NOT NULL,
+                unit TEXT NOT NULL DEFAULT '',
+                source_kind TEXT NOT NULL DEFAULT '',
+                confidence REAL,
+                provenance_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_daily_named_metrics_by_date
+                ON daily_named_metrics(date_key);
+            CREATE INDEX IF NOT EXISTS idx_daily_named_metrics_by_name
+                ON daily_named_metrics(metric_name);
 
             CREATE TABLE IF NOT EXISTS hourly_activity_metrics (
                 hourly_metric_id TEXT PRIMARY KEY,
@@ -3051,6 +3096,84 @@ impl GooseStore {
         let rows = statement.query_map(
             params![start_time_unix_ms, end_time_unix_ms],
             daily_activity_metric_from_row,
+        )?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(GooseError::from)
+    }
+
+    /// Upsert a named daily metric. The `(date_key, metric_name)` pair is the
+    /// identity, so re-writing the same day's value replaces it. Returns whether
+    /// a row was inserted or changed.
+    pub fn upsert_daily_named_metric(
+        &self,
+        input: DailyNamedMetricInput<'_>,
+    ) -> GooseResult<bool> {
+        validate_required("date_key", input.date_key)?;
+        validate_required("metric_name", input.metric_name)?;
+        if !input.value.is_finite() {
+            return Err(GooseError::message("daily named metric value must be finite"));
+        }
+        let id = format!("{}.{}", input.date_key, input.metric_name);
+        let changed = self.conn.execute(
+            r#"
+            INSERT INTO daily_named_metrics (
+                daily_named_metric_id, date_key, metric_name, value, unit,
+                source_kind, confidence, provenance_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(daily_named_metric_id) DO UPDATE SET
+                value = excluded.value,
+                unit = excluded.unit,
+                source_kind = excluded.source_kind,
+                confidence = excluded.confidence,
+                provenance_json = excluded.provenance_json,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE daily_named_metrics.value IS NOT excluded.value
+               OR daily_named_metrics.unit IS NOT excluded.unit
+               OR daily_named_metrics.source_kind IS NOT excluded.source_kind
+               OR daily_named_metrics.confidence IS NOT excluded.confidence
+               OR daily_named_metrics.provenance_json IS NOT excluded.provenance_json
+            "#,
+            params![
+                id,
+                input.date_key,
+                input.metric_name,
+                input.value,
+                input.unit,
+                input.source_kind,
+                input.confidence,
+                input.provenance_json,
+            ],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Read a single named daily metric across an inclusive `date_key` range,
+    /// ordered by day. Used to build trend series for app-computed metrics like
+    /// Energy Bank and Stress.
+    pub fn daily_named_metrics_between(
+        &self,
+        metric_name: &str,
+        start_date_key: &str,
+        end_date_key: &str,
+    ) -> GooseResult<Vec<DailyNamedMetricRow>> {
+        validate_required("metric_name", metric_name)?;
+        validate_required("start_date_key", start_date_key)?;
+        validate_required("end_date_key", end_date_key)?;
+        let mut statement = self.conn.prepare(
+            r#"
+            SELECT
+                date_key, metric_name, value, unit, source_kind,
+                confidence, provenance_json, created_at, updated_at
+            FROM daily_named_metrics
+            WHERE metric_name = ?1
+              AND date_key >= ?2
+              AND date_key <= ?3
+            ORDER BY date_key
+            "#,
+        )?;
+        let rows = statement.query_map(
+            params![metric_name, start_date_key, end_date_key],
+            daily_named_metric_from_row,
         )?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(GooseError::from)
@@ -7283,6 +7406,22 @@ fn activity_metric_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Activit
         quality_flags_json: row.get(7)?,
         provenance_json: row.get(8)?,
         created_at: row.get(9)?,
+    })
+}
+
+fn daily_named_metric_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<DailyNamedMetricRow> {
+    Ok(DailyNamedMetricRow {
+        date_key: row.get(0)?,
+        metric_name: row.get(1)?,
+        value: row.get(2)?,
+        unit: row.get(3)?,
+        source_kind: row.get(4)?,
+        confidence: row.get(5)?,
+        provenance_json: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     })
 }
 

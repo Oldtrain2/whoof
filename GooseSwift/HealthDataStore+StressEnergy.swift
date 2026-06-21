@@ -363,4 +363,82 @@ extension HealthDataStore {
     )
   }
 
+  // MARK: - Daily persistence (Energy Bank + Stress)
+
+  /// Persist today's computed Energy Bank and Stress values into the named-daily
+  /// metric store so trends survive app restarts (they were previously computed
+  /// in-memory only). Idempotent: re-writing the same day replaces the value.
+  func persistDailyEnergyAndStressMetrics(
+    for date: Date = Date(),
+    calendar: Calendar = .current
+  ) {
+    let window = HealthDataStore.currentDailyMetricWindow()
+
+    let energy = energyBankAlgorithmSummary(for: date, calendar: calendar)
+    if let percent = energy.percent {
+      writeDailyNamedMetric(
+        name: "energy_bank_percent", value: percent, unit: "percent",
+        source: "goose.energy_bank.v1", confidence: energy.confidence, dateKey: window.dateKey)
+      writeDailyNamedMetric(
+        name: "energy_bank_charged", value: energy.totalCharged, unit: "kcal",
+        source: "goose.energy_bank.v1", confidence: energy.confidence, dateKey: window.dateKey)
+      writeDailyNamedMetric(
+        name: "energy_bank_drained", value: energy.totalDrained, unit: "kcal",
+        source: "goose.energy_bank.v1", confidence: energy.confidence, dateKey: window.dateKey)
+    }
+
+    let stress = stressAlgorithmSummary(for: date, calendar: calendar)
+    if let score = stress.score {
+      writeDailyNamedMetric(
+        name: "stress_score", value: score, unit: "score",
+        source: "goose.stress.v1", confidence: stress.confidence, dateKey: window.dateKey)
+    }
+  }
+
+  private func writeDailyNamedMetric(
+    name: String, value: Double, unit: String, source: String,
+    confidence: Double?, dateKey: String
+  ) {
+    guard value.isFinite else { return }
+    var args: [String: Any] = [
+      "database_path": databasePath,
+      "date_key": dateKey,
+      "metric_name": name,
+      "value": value,
+      "unit": unit,
+      "source_kind": source,
+    ]
+    if let confidence {
+      args["confidence"] = confidence
+    }
+    _ = try? bridge.request(method: "metrics.write_daily_named_metric", args: args)
+  }
+
+  /// Read a persisted named-daily metric series (inclusive date-key range) for
+  /// building Energy Bank / Stress trends.
+  func dailyNamedMetricSeries(
+    name: String, from startDateKey: String, to endDateKey: String
+  ) -> [(dateKey: String, value: Double)] {
+    guard
+      let report = try? bridge.request(
+        method: "metrics.read_daily_named_metrics",
+        args: [
+          "database_path": databasePath,
+          "metric_name": name,
+          "start_date_key": startDateKey,
+          "end_date_key": endDateKey,
+        ])
+    else {
+      return []
+    }
+    let metrics = report["metrics"] as? [[String: Any]] ?? []
+    return metrics.compactMap { metric in
+      guard let dateKey = metric["date_key"] as? String else { return nil }
+      let value =
+        (metric["value"] as? Double) ?? (metric["value"] as? NSNumber)?.doubleValue
+      guard let value else { return nil }
+      return (dateKey, value)
+    }
+  }
+
 }

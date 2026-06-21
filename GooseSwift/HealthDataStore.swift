@@ -251,6 +251,8 @@ final class HealthDataStore: ObservableObject {
         case .success(let reports):
           self.packetInputReports = reports
           self.packetInputStatus = "Bridge packet-derived inputs extracted"
+          // Persist today's Energy Bank + Stress so their trends survive restarts.
+          self.persistDailyEnergyAndStressMetrics()
         case .failure(let error):
           self.packetInputStatus = "Bridge input extraction blocked: \(HealthDataStore.shortError(error))"
         }

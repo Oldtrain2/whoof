@@ -560,6 +560,34 @@ struct DailyActivityMetricListArgs {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct WriteDailyNamedMetricArgs {
+    database_path: String,
+    date_key: String,
+    metric_name: String,
+    value: f64,
+    #[serde(default)]
+    unit: String,
+    #[serde(default)]
+    source_kind: String,
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default = "default_named_metric_provenance")]
+    provenance_json: String,
+}
+
+fn default_named_metric_provenance() -> String {
+    "{}".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ReadDailyNamedMetricsArgs {
+    database_path: String,
+    metric_name: String,
+    start_date_key: String,
+    end_date_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct HourlyActivityMetricListArgs {
     database_path: String,
     start_time_unix_ms: i64,
@@ -2046,6 +2074,14 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
         }
         "metrics.daily_activity_metrics" => request_args::<DailyActivityMetricListArgs>(&request)
             .and_then(daily_activity_metrics_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.write_daily_named_metric" => request_args::<WriteDailyNamedMetricArgs>(&request)
+            .and_then(write_daily_named_metric_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "metrics.read_daily_named_metrics" => request_args::<ReadDailyNamedMetricsArgs>(&request)
+            .and_then(read_daily_named_metrics_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "metrics.hourly_activity_metrics" => request_args::<HourlyActivityMetricListArgs>(&request)
@@ -3747,6 +3783,48 @@ fn daily_activity_metrics_bridge(
         "generated_by": "goose-bridge",
         "start_time_unix_ms": args.start_time_unix_ms,
         "end_time_unix_ms": args.end_time_unix_ms,
+        "metric_count": metrics.len(),
+        "metrics": metrics,
+    }))
+}
+
+fn write_daily_named_metric_bridge(
+    args: WriteDailyNamedMetricArgs,
+) -> GooseResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let changed = store.upsert_daily_named_metric(crate::store::DailyNamedMetricInput {
+        date_key: &args.date_key,
+        metric_name: &args.metric_name,
+        value: args.value,
+        unit: &args.unit,
+        source_kind: &args.source_kind,
+        confidence: args.confidence,
+        provenance_json: &args.provenance_json,
+    })?;
+    Ok(json!({
+        "schema": "goose.daily-named-metric-write.v1",
+        "generated_by": "goose-bridge",
+        "date_key": args.date_key,
+        "metric_name": args.metric_name,
+        "changed": changed,
+    }))
+}
+
+fn read_daily_named_metrics_bridge(
+    args: ReadDailyNamedMetricsArgs,
+) -> GooseResult<serde_json::Value> {
+    let store = open_bridge_store(&args.database_path)?;
+    let metrics = store.daily_named_metrics_between(
+        &args.metric_name,
+        &args.start_date_key,
+        &args.end_date_key,
+    )?;
+    Ok(json!({
+        "schema": "goose.daily-named-metric-list.v1",
+        "generated_by": "goose-bridge",
+        "metric_name": args.metric_name,
+        "start_date_key": args.start_date_key,
+        "end_date_key": args.end_date_key,
         "metric_count": metrics.len(),
         "metrics": metrics,
     }))
