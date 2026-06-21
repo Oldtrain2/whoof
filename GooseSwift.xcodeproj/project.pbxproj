@@ -938,6 +938,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GooseSwift/GooseSwift.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5G2K6WS88U;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
@@ -961,7 +962,7 @@
 					"-force_load",
 					"$(SRCROOT)/Rust/$(PLATFORM_NAME)/libgoose_core.a",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.goose.swift;
+				PRODUCT_BUNDLE_IDENTIFIER = com.madhursatija.goose;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -981,6 +982,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GooseSwift/GooseSwift.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5G2K6WS88U;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
@@ -1004,7 +1006,7 @@
 					"-force_load",
 					"$(SRCROOT)/Rust/$(PLATFORM_NAME)/libgoose_core.a",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.goose.swift;
+				PRODUCT_BUNDLE_IDENTIFIER = com.madhursatija.goose;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1022,6 +1024,7 @@
 				ARCHS = arm64;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5G2K6WS88U;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = GooseWorkoutLiveActivityExtension/Info.plist;
@@ -1033,7 +1036,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.goose.swift.WorkoutLiveActivityExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.madhursatija.goose.WorkoutLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1051,6 +1054,7 @@
 				ARCHS = arm64;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5G2K6WS88U;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = GooseWorkoutLiveActivityExtension/Info.plist;
@@ -1061,7 +1065,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.goose.swift.WorkoutLiveActivityExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.madhursatija.goose.WorkoutLiveActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

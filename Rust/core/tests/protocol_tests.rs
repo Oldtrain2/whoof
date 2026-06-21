@@ -1,8 +1,9 @@
 use goose_core::protocol::{
-    COMMAND_GET_HELLO, DataPacketBodySummary, DeviceType, FrameAccumulator, I16SeriesSummary,
-    PACKET_TYPE_COMMAND_RESPONSE, PACKET_TYPE_EVENT, PACKET_TYPE_HISTORICAL_DATA,
+    COMMAND_GET_HELLO, DataPacketBodySummary, DeviceType, FrameAccumulator, Gen4SensorData,
+    I16SeriesSummary, PACKET_TYPE_COMMAND_RESPONSE, PACKET_TYPE_EVENT, PACKET_TYPE_HISTORICAL_DATA,
     PACKET_TYPE_REALTIME_DATA, PACKET_TYPE_REALTIME_RAW_DATA, ParsedPayload,
-    build_v5_command_frame, build_v5_payload_frame, parse_frame, parse_frame_hex,
+    build_command_frame, build_gen4_command_frame, build_gen4_payload_frame, build_v5_command_frame,
+    build_v5_payload_frame, parse_frame, parse_frame_hex,
 };
 
 const GET_HELLO_FRAME: &str = "aa0108000001e67123019101363e5c8d";
@@ -39,6 +40,183 @@ fn builder_matches_existing_python_command_builder_fixture() {
     let frame = build_v5_command_frame(1, COMMAND_GET_HELLO, &[1]);
 
     assert_eq!(hex::encode(frame), GET_HELLO_FRAME);
+}
+
+/// Golden vectors generated independently from the openwhoop reference codec
+/// (`WhoopPacket::framed_packet`, the Gen4/Harvard framing). These pin the
+/// Goose Gen4 builder byte-for-byte to the reference implementation so a WHOOP
+/// 4.0 strap receives exactly the frames it expects.
+#[test]
+fn gen4_builder_matches_openwhoop_golden_vectors() {
+    // (sequence, command, data, expected_hex) — seq is 0 for all sync commands.
+    let cases: [(u8, u8, &[u8], &str); 6] = [
+        (0, 35, &[0x00], "aa0800a823002300ada86a2d"), // hello_harvard (GetHelloHarvard)
+        (0, 76, &[0x00], "aa0800a823004c00c5df0fcf"), // get_name (GetAdvertisingNameHarvard)
+        (0, 96, &[], "aa07006b230060f340f888"),       // enter_high_freq_sync
+        (0, 22, &[0x00], "aa0800a8230016001b6a5b8f"), // history_start (SendHistoricalData)
+        (0, 34, &[0x00], "aa0800a823002200ec997134"), // get_data_range (GetDataRange)
+        (0, 68, &[0x00], "aa0800a823004400cd55d607"), // run_alarm_now (RunAlarm)
+    ];
+    for (seq, cmd, data, expected) in cases {
+        let frame = build_gen4_command_frame(seq, cmd, data);
+        assert_eq!(
+            hex::encode(&frame),
+            expected,
+            "gen4 frame mismatch for cmd {cmd}"
+        );
+        // build_command_frame must route Gen4 to the Harvard builder.
+        assert_eq!(build_command_frame(DeviceType::Gen4, seq, cmd, data), frame);
+    }
+}
+
+#[test]
+fn gen4_builder_round_trips_through_gen4_parser() {
+    let frame = build_gen4_command_frame(7, 22, &[0x00]);
+    let parsed = parse_frame(DeviceType::Gen4, &frame).unwrap();
+
+    assert_eq!(parsed.header_len, 4);
+    assert!(parsed.header_crc_valid, "gen4 header crc8 should validate");
+    assert!(parsed.payload_crc_valid, "gen4 payload crc32 should validate");
+    assert_eq!(parsed.packet_type_name.as_deref(), Some("COMMAND"));
+    assert_eq!(parsed.sequence, Some(7));
+    assert_eq!(parsed.command_or_event, Some(22));
+}
+
+#[test]
+fn gen4_and_gen5_framing_differ_for_same_command() {
+    let gen4 = build_command_frame(DeviceType::Gen4, 0, 22, &[0x00]);
+    let gen5 = build_command_frame(DeviceType::Goose, 0, 22, &[0x00]);
+    assert_ne!(gen4, gen5, "gen4 (4-byte/crc8) must differ from gen5 (8-byte/crc16)");
+    assert_eq!(gen4[1], 0x08); // gen4 length LSB at byte 1
+    assert_eq!(gen5[1], 0x01); // gen5 flags byte at byte 1
+}
+
+/// Build a Gen4 historical-data frame from a payload of `len` bytes with the
+/// given `(offset, byte)` overrides, framed with the Harvard header so it round
+/// trips through `parse_frame(DeviceType::Gen4, ..)`.
+fn gen4_history_frame(k: u8, len: usize, fields: &[(usize, u8)]) -> Vec<u8> {
+    let mut payload = vec![0u8; len];
+    payload[0] = goose_core::protocol::PACKET_TYPE_HISTORICAL_DATA;
+    payload[1] = k;
+    for &(offset, value) in fields {
+        payload[offset] = value;
+    }
+    build_gen4_payload_frame(&payload)
+}
+
+fn gen4_history_summary(frame: &[u8]) -> DataPacketBodySummary {
+    let parsed = parse_frame(DeviceType::Gen4, frame).unwrap();
+    let ParsedPayload::DataPacket {
+        body_summary: Some(summary),
+        ..
+    } = parsed.parsed_payload.unwrap()
+    else {
+        panic!("expected a Gen4 data packet");
+    };
+    summary
+}
+
+/// Gen4 generic history packets carry the heart rate at payload[17], the RR
+/// count at [18], and up to four RR intervals from [19]. Offsets mirror the
+/// openwhoop `parse_historical_packet_generic` layout (+3 prefix).
+#[test]
+fn gen4_generic_history_decodes_heart_rate_and_rr() {
+    // bpm=62, rr_count=1, rr[0]=837ms (0x0345 LE).
+    let frame = gen4_history_frame(9, 27, &[(17, 62), (18, 1), (19, 0x45), (20, 0x03)]);
+    match gen4_history_summary(&frame) {
+        DataPacketBodySummary::Gen4History {
+            bpm,
+            rr_intervals_ms,
+            rr_count,
+            sensor,
+            ..
+        } => {
+            assert_eq!(bpm, Some(62));
+            assert_eq!(rr_count, Some(1));
+            assert_eq!(rr_intervals_ms, vec![837]);
+            assert_eq!(sensor, None, "k=9 is not a sensor packet");
+        }
+        other => panic!("expected Gen4History, got {other:?}"),
+    }
+}
+
+/// Gen4 V12/V24 sensor packets additionally carry raw DSP fields (SpO2 red/IR,
+/// skin temperature, respiratory rate, signal quality, PPG, skin contact).
+#[test]
+fn gen4_v24_sensor_history_decodes_raw_dsp_fields() {
+    let frame = gen4_history_frame(
+        24,
+        80,
+        &[
+            (17, 70),   // bpm
+            (18, 0),    // rr_count
+            (29, 0x01), // ppg_green = 1
+            (51, 1),    // skin_contact = 1
+            (64, 0x34), // spo2_red = 0x1234 = 4660
+            (65, 0x12),
+            (68, 0xB8), // skin_temp_raw = 0x0BB8 = 3000
+            (69, 0x0B),
+            (76, 0x10), // resp_rate_raw = 16
+            (78, 0xFF), // signal_quality = 255
+        ],
+    );
+    match gen4_history_summary(&frame) {
+        DataPacketBodySummary::Gen4History {
+            bpm,
+            rr_intervals_ms,
+            sensor,
+            ..
+        } => {
+            assert_eq!(bpm, Some(70));
+            assert!(rr_intervals_ms.is_empty());
+            assert_eq!(
+                sensor,
+                Some(Gen4SensorData {
+                    ppg_green: 1,
+                    ppg_red_ir: 0,
+                    spo2_red: 4660,
+                    spo2_ir: 0,
+                    skin_temp_raw: 3000,
+                    ambient_light: 0,
+                    led_drive_1: 0,
+                    led_drive_2: 0,
+                    resp_rate_raw: 16,
+                    signal_quality: 255,
+                    skin_contact: 1,
+                })
+            );
+        }
+        other => panic!("expected Gen4History, got {other:?}"),
+    }
+}
+
+/// The same byte layout under Gen5 framing must NOT take the Gen4 history path;
+/// k=24 stays a Gen5 normal-history marker summary.
+#[test]
+fn gen5_does_not_use_gen4_history_decoder() {
+    let mut payload = vec![0u8; 27];
+    payload[0] = PACKET_TYPE_HISTORICAL_DATA;
+    payload[1] = 24;
+    payload[17] = 62;
+    let frame = build_v5_payload_frame(&payload);
+    match gen5_history_summary(&frame) {
+        DataPacketBodySummary::NormalHistory { marker_value, .. } => {
+            assert_eq!(marker_value, Some(62));
+        }
+        other => panic!("expected Gen5 NormalHistory, got {other:?}"),
+    }
+}
+
+fn gen5_history_summary(frame: &[u8]) -> DataPacketBodySummary {
+    let parsed = parse_frame(DeviceType::Goose, frame).unwrap();
+    let ParsedPayload::DataPacket {
+        body_summary: Some(summary),
+        ..
+    } = parsed.parsed_payload.unwrap()
+    else {
+        panic!("expected a Gen5 data packet");
+    };
+    summary
 }
 
 #[test]

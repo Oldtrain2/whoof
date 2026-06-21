@@ -2390,6 +2390,74 @@ fn export_sensor_samples(
                     )?;
                 }
             }
+            DataPacketBodySummary::Gen4History {
+                bpm,
+                rr_intervals_ms,
+                sensor,
+                ..
+            } => {
+                if let Some(value) = bpm.filter(|value| *value > 0) {
+                    rows.push(sensor_u8_sample(
+                        &context,
+                        "gen4_history_heart_rate",
+                        "gen4_heart_rate",
+                        0,
+                        17,
+                        value,
+                        "bpm",
+                        vec!["gen4_history".to_string()],
+                    ));
+                }
+                for (index, rr) in rr_intervals_ms.iter().enumerate() {
+                    rows.push(sensor_u16_sample(
+                        &context,
+                        "gen4_history_rr_interval",
+                        "gen4_rr_interval",
+                        index,
+                        19 + index * 2,
+                        *rr,
+                        "ms",
+                        vec!["gen4_history".to_string()],
+                    ));
+                }
+                if let Some(sensor) = sensor {
+                    // Raw ADC counts, not calibrated units; flagged so metric
+                    // readiness keeps them out of trusted scores until verified.
+                    let raw_fields: [(&str, usize, u16); 6] = [
+                        ("gen4_spo2_red", 64, sensor.spo2_red),
+                        ("gen4_spo2_ir", 66, sensor.spo2_ir),
+                        ("gen4_skin_temp_raw", 68, sensor.skin_temp_raw),
+                        ("gen4_resp_rate_raw", 76, sensor.resp_rate_raw),
+                        ("gen4_signal_quality", 78, sensor.signal_quality),
+                        ("gen4_ppg_green", 29, sensor.ppg_green),
+                    ];
+                    for (name, offset, value) in raw_fields {
+                        rows.push(sensor_u16_sample(
+                            &context,
+                            name,
+                            name,
+                            0,
+                            offset,
+                            value,
+                            "raw_adc",
+                            vec![
+                                "gen4_history_sensor".to_string(),
+                                "raw_unverified_units".to_string(),
+                            ],
+                        ));
+                    }
+                    rows.push(sensor_u8_sample(
+                        &context,
+                        "gen4_skin_contact",
+                        "gen4_skin_contact",
+                        0,
+                        51,
+                        sensor.skin_contact,
+                        "flag",
+                        vec!["gen4_history_sensor".to_string()],
+                    ));
+                }
+            }
         }
     }
     Ok(rows)
@@ -2542,6 +2610,70 @@ fn sensor_u8_sample(
         payload_offset,
         raw_i16: None,
         raw_u8: Some(value),
+        sample_value: i64::from(value),
+        unit: unit.to_string(),
+        device_timestamp_seconds: context.timestamp_seconds,
+        device_timestamp_subseconds: context.timestamp_subseconds,
+        parser_version: context.row.parser_version.clone(),
+        quality_flags,
+        provenance: json!({
+            "input_source": "decoded_frame_payload",
+            "frame_id": context.row.frame_id,
+            "evidence_id": context.row.evidence_id,
+            "parser_version": context.row.parser_version,
+            "source_signal": source_signal,
+            "series_name": series_name,
+            "sample_index": sample_index,
+            "payload_offset": payload_offset,
+            "sample_time_source": sample_time.source,
+            "device_timestamp_seconds": context.timestamp_seconds,
+            "device_timestamp_subseconds": context.timestamp_subseconds,
+            "unit_policy": unit,
+        }),
+    }
+}
+
+/// Emit a sensor sample carrying a `u16` value (RR intervals, raw DSP fields).
+///
+/// `ExportSensorSampleRow` only has dedicated `raw_u8`/`raw_i16` columns, so the
+/// exact value is preserved in `sample_value` (an `i64`) and both raw columns
+/// are left `None`. A `raw_u16_value` flag records that the magnitude lives in
+/// `sample_value` rather than a raw column.
+#[allow(clippy::too_many_arguments)]
+fn sensor_u16_sample(
+    context: &SensorSampleContext<'_>,
+    source_signal: &str,
+    series_name: &str,
+    sample_index: usize,
+    payload_offset: usize,
+    value: u16,
+    unit: &str,
+    mut quality_flags: Vec<String>,
+) -> ExportSensorSampleRow {
+    quality_flags.push("raw_u16_value".to_string());
+    let sample_time = normalized_sensor_sample_time(
+        context.row,
+        context.timestamp_seconds,
+        context.timestamp_subseconds,
+        &mut quality_flags,
+    );
+    ExportSensorSampleRow {
+        sample_id: sensor_sample_id(&context.row.frame_id, series_name, sample_index),
+        frame_id: context.row.frame_id.clone(),
+        evidence_id: context.row.evidence_id.clone(),
+        captured_at: context.row.captured_at.clone(),
+        sample_time: sample_time.time,
+        sample_time_unix_ms: sample_time.unix_ms,
+        sample_time_source: sample_time.source.clone(),
+        source_signal: source_signal.to_string(),
+        packet_type_name: context.row.packet_type_name.clone(),
+        packet_k: context.packet_k,
+        domain: context.domain.map(ToOwned::to_owned),
+        series_name: series_name.to_string(),
+        sample_index,
+        payload_offset,
+        raw_i16: None,
+        raw_u8: None,
         sample_value: i64::from(value),
         unit: unit.to_string(),
         device_timestamp_seconds: context.timestamp_seconds,

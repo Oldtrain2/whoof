@@ -144,33 +144,68 @@ extension GooseBLEClient {
     }
   }
 
-  var supportsV5HistoricalSync: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+  /// Which WHOOP strap generation a command characteristic belongs to. Gen4
+  /// ("Harvard", WHOOP 4.0) uses the `61080002` characteristic; all Gen5 straps
+  /// (Maverick/Puffin/Goose, WHOOP 5.0) use `fd4b0002`.
+  enum CommandGeneration {
+    case gen4
+    case gen5
   }
 
-  var supportsV5AlarmCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+  func commandGeneration(for characteristic: CBCharacteristic) -> CommandGeneration {
+    characteristic.uuid.uuidString.lowercased().hasPrefix("610800") ? .gen4 : .gen5
   }
 
-  var supportsV5ClockCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+  /// Generation of the currently selected command characteristic; defaults to
+  /// Gen5 when no characteristic is selected yet.
+  var activeCommandGeneration: CommandGeneration {
+    commandCharacteristic.map(commandGeneration(for:)) ?? .gen5
   }
 
-  var supportsV5SensorCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+  /// Build a command frame for the active command characteristic's generation.
+  /// Gen5 output is byte-identical to `buildV5CommandFrame`.
+  func buildCommandFrame(sequence: UInt8, command: UInt8, data: [UInt8]) -> Data {
+    switch activeCommandGeneration {
+    case .gen4:
+      return Self.buildGen4CommandFrame(sequence: sequence, command: command, data: data)
+    case .gen5:
+      return Self.buildV5CommandFrame(sequence: sequence, command: command, data: data)
+    }
   }
+
+  /// True when a usable WHOOP command characteristic (either generation) is
+  /// selected. Historical sync, alarm, clock, and sensor commands are all
+  /// supported on both Gen4 and Gen5 straps.
+  var supportsHistoricalSync: Bool {
+    commandCharacteristic.map(isWhoopCommandCharacteristic) == true
+  }
+
+  var supportsV5HistoricalSync: Bool { supportsHistoricalSync }
+  var supportsV5AlarmCommands: Bool { supportsHistoricalSync }
+  var supportsV5ClockCommands: Bool { supportsHistoricalSync }
+  var supportsV5SensorCommands: Bool { supportsHistoricalSync }
 
   func isV5CommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
     characteristic.uuid.uuidString.lowercased().hasPrefix("fd4b0002")
+  }
+
+  func isWhoopCommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
+    let uuid = characteristic.uuid.uuidString.lowercased()
+    return uuid.hasPrefix("fd4b0002") || uuid.hasPrefix("61080002")
   }
 
   func shouldUseCommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
     guard commandCharacteristicIDs.contains(characteristic.uuid) else {
       return false
     }
+    guard isWhoopCommandCharacteristic(characteristic) else {
+      return false
+    }
     guard let current = commandCharacteristic else {
       return true
     }
+    // Prefer a Gen5 characteristic over a Gen4 one if both are present, but
+    // otherwise accept whichever WHOOP command characteristic was discovered.
     return !isV5CommandCharacteristic(current) && isV5CommandCharacteristic(characteristic)
   }
 

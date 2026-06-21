@@ -34,6 +34,12 @@ final class HealthDataStore: ObservableObject {
   var packetInputIsRunning = false
   var heartRateTimelineRefreshID: UUID?
   var heartRateSeriesUpdateObserver: NSObjectProtocol?
+  // Memoizes stressAlgorithmSummary, which is O(day's HR samples) and was the
+  // hottest symbol in an on-device Time Profiler trace — it is invoked several
+  // times per render (view bodies, energyBankAlgorithmSummary, landingSnapshots).
+  // Keyed by a cheap sample-set signature so it self-invalidates when HR data
+  // changes. Not @Published: mutating it must not trigger view invalidation.
+  var stressSummaryCache: [String: StressAlgorithmSummary] = [:]
   let packetInputQueue = DispatchQueue(label: "com.goose.swift.health.packet-inputs", qos: .utility)
   let heartRateTimelineQueue = DispatchQueue(label: "com.goose.swift.health.heart-rate-timeline", qos: .utility)
   lazy var databasePath = HealthDataStore.defaultDatabasePath()
@@ -162,11 +168,31 @@ final class HealthDataStore: ObservableObject {
   }
 
   func refreshBridgeCatalogs() {
-    do {
-      let algorithmsValue = try bridge.requestValue(method: "metrics.built_in_definitions")
-      let referencesValue = try bridge.requestValue(method: "metrics.reference_definitions")
-      let preferencesValue = try bridge.requestValue(method: "metrics.default_preferences")
+    // The three catalog reads are pure Rust FFI (no device or DB state), but
+    // each is a synchronous round-trip. Running them inline blocked the main
+    // thread on every tab open (loadBridgeCatalogsIfNeeded fires from 7 view
+    // .onAppear sites). Do the FFI off-main on a private bridge instance, then
+    // parse + apply on the main actor — mirroring refreshHeartRateTimeline.
+    packetInputQueue.async { [weak self] in
+      let bridge = GooseRustBridge()
+      let outcome: Result<(Any, Any, Any), Error>
+      do {
+        let algorithmsValue = try bridge.requestValue(method: "metrics.built_in_definitions")
+        let referencesValue = try bridge.requestValue(method: "metrics.reference_definitions")
+        let preferencesValue = try bridge.requestValue(method: "metrics.default_preferences")
+        outcome = .success((algorithmsValue, referencesValue, preferencesValue))
+      } catch {
+        outcome = .failure(error)
+      }
+      Task { @MainActor in
+        self?.applyBridgeCatalogs(outcome)
+      }
+    }
+  }
 
+  private func applyBridgeCatalogs(_ outcome: Result<(Any, Any, Any), Error>) {
+    switch outcome {
+    case .success(let (algorithmsValue, referencesValue, preferencesValue)):
       let parsedAlgorithms = Self.algorithmRows(from: algorithmsValue)
         .map { HealthAlgorithmDefinition(row: $0, source: .bridge("metrics.built_in_definitions")) }
       let parsedReferences = Self.algorithmRows(from: referencesValue)
@@ -188,7 +214,7 @@ final class HealthDataStore: ObservableObject {
       }
       catalogSource = .bridge("Rust metric registry")
       catalogStatus = "Bridge catalog loaded"
-    } catch {
+    case .failure(let error):
       algorithmDefinitions = []
       referenceDefinitions = []
       selectedAlgorithmByFamily = [:]

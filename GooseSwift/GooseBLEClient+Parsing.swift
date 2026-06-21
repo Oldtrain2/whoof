@@ -929,6 +929,49 @@ extension GooseBLEClient {
     return Data(frame)
   }
 
+  /// Build a WHOOP Gen4 ("Harvard", e.g. WHOOP 4.0) command frame.
+  ///
+  /// Gen4 framing differs from Gen5/Maverick: a 4-byte header
+  /// `[0xaa][len_lo][len_hi][crc8(len)]` followed by the unpadded payload and a
+  /// trailing CRC32, where `len` counts the payload plus the 4-byte CRC32. There
+  /// is no flags/role header and no 4-byte payload alignment. Mirrors the Rust
+  /// `build_gen4_command_frame`, itself ported from the openwhoop reference.
+  static func buildGen4CommandFrame(sequence: UInt8, command: UInt8, data: [UInt8]) -> Data {
+    var payload = [V5PacketType.command, sequence, command]
+    payload.append(contentsOf: data)
+
+    let payloadCRC = crc32(payload)
+    let declaredLength = UInt16(payload.count + 4)
+    let lengthBytes: [UInt8] = [
+      UInt8(declaredLength & 0xff),
+      UInt8((declaredLength >> 8) & 0xff),
+    ]
+    var frame: [UInt8] = [0xaa]
+    frame.append(contentsOf: lengthBytes)
+    frame.append(crc8(lengthBytes))
+    frame.append(contentsOf: payload)
+    frame.append(UInt8(payloadCRC & 0xff))
+    frame.append(UInt8((payloadCRC >> 8) & 0xff))
+    frame.append(UInt8((payloadCRC >> 16) & 0xff))
+    frame.append(UInt8((payloadCRC >> 24) & 0xff))
+    return Data(frame)
+  }
+
+  static func crc8(_ bytes: [UInt8]) -> UInt8 {
+    var crc: UInt8 = 0
+    for byte in bytes {
+      crc ^= byte
+      for _ in 0..<8 {
+        if crc & 0x80 != 0 {
+          crc = (crc << 1) ^ 0x07
+        } else {
+          crc <<= 1
+        }
+      }
+    }
+    return crc
+  }
+
   static func crc16Modbus(_ bytes: [UInt8]) -> UInt16 {
     var crc = UInt16(0xffff)
     for byte in bytes {

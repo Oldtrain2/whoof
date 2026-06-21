@@ -27,6 +27,22 @@ extension HealthDataStore {
     }
 
     let dayStart = calendar.startOfDay(for: date)
+
+    // Return a memoized result when the day's heart-rate sample set is materially
+    // unchanged. The summary is a whole-day rollup, so the signature is quantized:
+    // live HR streaming adds a sample roughly every second, but rebuilding the
+    // daily aggregate on every render/sample is wasteful and was the dominant
+    // streaming-time cost in profiling. Bucketing the sample count (every 16) and
+    // the latest sample time (every 30s) rebuilds at most ~every 16-30s while
+    // connected — imperceptible staleness for a daily score — and caches fully
+    // when no new samples are arriving.
+    let sampleBucket = samples.count / 16
+    let timeBucket = Int((samples.last?.capturedAt.timeIntervalSince1970 ?? 0) / 30)
+    let cacheSignature = "\(dayStart.timeIntervalSince1970)|\(sampleBucket)|\(timeBucket)|\(allowLiveFallbacks)"
+    if let cached = stressSummaryCache[cacheSignature] {
+      return cached
+    }
+
     let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(24 * 60 * 60)
     let restingHeartRate = stressRestingHeartRateEstimate(
       samples: samples,
@@ -109,7 +125,7 @@ extension HealthDataStore {
     ].joined(separator: " | ")
     let confidenceText = Self.numberText(stressConfidence, fractionDigits: 2) ?? "0"
 
-    return StressAlgorithmSummary(
+    let summary = StressAlgorithmSummary(
       score: score,
       status: Self.stressStatusLabel(score: score),
       averageHeartRate: averageHeartRate,
@@ -124,6 +140,14 @@ extension HealthDataStore {
       confidence: stressConfidence,
       inputSummary: inputSummary
     )
+
+    // Bound the cache: only a few distinct day/sample signatures are ever live
+    // (today plus any selected detail date), so clear if it grows unexpectedly.
+    if stressSummaryCache.count > 12 {
+      stressSummaryCache.removeAll(keepingCapacity: true)
+    }
+    stressSummaryCache[cacheSignature] = summary
+    return summary
   }
 
   func energyBankAlgorithmSummary(

@@ -149,14 +149,28 @@ final class MoreDataStore: ObservableObject {
     guard schemaVersion == "Unknown" || coreVersionStatus == "Rust bridge not checked" else {
       return
     }
-    do {
-      let value = try bridge.request(method: "core.version")
-      let version = value["core_version"] as? String ?? "unknown"
-      let schema = value["storage_schema_version"].map(Self.stringValue) ?? "unknown"
-      coreVersionStatus = "Rust core \(version)"
-      schemaVersion = schema
-    } catch {
-      coreVersionStatus = "Rust bridge unavailable"
+    // core.version is a synchronous FFI round-trip; run it off-main so opening
+    // the More tab does not block the UI, then apply the result on the main actor.
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      let bridge = GooseRustBridge()
+      let outcome: Result<[String: Any], Error>
+      do {
+        outcome = .success(try bridge.request(method: "core.version"))
+      } catch {
+        outcome = .failure(error)
+      }
+      Task { @MainActor in
+        guard let self else { return }
+        switch outcome {
+        case .success(let value):
+          let version = value["core_version"] as? String ?? "unknown"
+          let schema = value["storage_schema_version"].map(Self.stringValue) ?? "unknown"
+          self.coreVersionStatus = "Rust core \(version)"
+          self.schemaVersion = schema
+        case .failure:
+          self.coreVersionStatus = "Rust bridge unavailable"
+        }
+      }
     }
   }
 
@@ -172,19 +186,34 @@ final class MoreDataStore: ObservableObject {
   func refreshRecentCaptureSessions() {
     let nowMs = Self.unixMilliseconds(Date())
     let thirtyDaysMs: Int64 = 30 * 24 * 60 * 60 * 1_000
-    do {
-      let value = try bridge.request(
-        method: "capture.list_sessions",
-        args: [
-          "database_path": databasePath,
-          "start_unix_ms": nowMs - thirtyDaysMs,
-          "end_unix_ms": nowMs,
-        ]
-      )
-      recentCaptureSessions = Self.captureSessionSummaries(from: value)
-    } catch {
-      if recentCaptureSessions.isEmpty {
-        recentCaptureSessions = ["No stored capture sessions"]
+    let path = databasePath
+    // capture.list_sessions reads SQLite over the FFI bridge; run it off-main so
+    // the More tab opens without a freeze, then apply the result on the main actor.
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      let bridge = GooseRustBridge()
+      let outcome: Result<[String: Any], Error>
+      do {
+        outcome = .success(try bridge.request(
+          method: "capture.list_sessions",
+          args: [
+            "database_path": path,
+            "start_unix_ms": nowMs - thirtyDaysMs,
+            "end_unix_ms": nowMs,
+          ]
+        ))
+      } catch {
+        outcome = .failure(error)
+      }
+      Task { @MainActor in
+        guard let self else { return }
+        switch outcome {
+        case .success(let value):
+          self.recentCaptureSessions = Self.captureSessionSummaries(from: value)
+        case .failure:
+          if self.recentCaptureSessions.isEmpty {
+            self.recentCaptureSessions = ["No stored capture sessions"]
+          }
+        }
       }
     }
   }

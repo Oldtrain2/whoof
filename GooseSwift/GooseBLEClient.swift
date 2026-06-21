@@ -94,7 +94,11 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var notificationContextConnectionState = "disconnected"
   static let displayedMessageFlushInterval: TimeInterval = 0.5
   static let maximumDisplayedMessages = 300
-  static let bleUIStatePublishInterval: TimeInterval = 0.2
+  // Live BLE UI state republishes on this cadence. At 0.2s (5 Hz) every health
+  // dashboard observing the client re-rendered 5x/sec while connected, which was
+  // a major source of lag during streaming/sync. 0.4s (2.5 Hz) halves the
+  // re-render churn and is still imperceptible for live vitals.
+  static let bleUIStatePublishInterval: TimeInterval = 0.4
   static let diagnosticLogProtection: FileProtectionType = .completeUntilFirstUserAuthentication
   static let diagnosticLogSetupWarningLock = NSLock()
   static var diagnosticLogSetupWarnings: [String] = []

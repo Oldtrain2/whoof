@@ -154,6 +154,42 @@ pub enum DataPacketBodySummary {
         axes: Vec<I16SeriesSummary>,
         warnings: Vec<String>,
     },
+    /// WHOOP Gen4 ("Harvard", WHOOP 4.0) historical reading.
+    ///
+    /// Gen4 history packets pack the per-second vitals (heart rate, RR
+    /// intervals, and on V12/V24 sensor packets the raw DSP fields) directly
+    /// into the data-packet body, unlike Gen5 where the body only carries an
+    /// HR-presence marker. Byte offsets are ported from the openwhoop
+    /// `parse_historical_packet*` reference, shifted by +3 to account for the
+    /// `[type, k, status]` prefix that Goose keeps in `payload`.
+    Gen4History {
+        bpm: Option<u8>,
+        rr_intervals_ms: Vec<u16>,
+        rr_count: Option<u8>,
+        sensor: Option<Gen4SensorData>,
+        warnings: Vec<String>,
+    },
+}
+
+/// Raw DSP sensor fields decoded from a Gen4 V12/V24 historical reading.
+///
+/// These are raw ADC counts, not calibrated physical units. WHOOP uploads them
+/// for server-side processing; we surface the raw values so downstream metric
+/// readiness can decide what (if anything) to promote. Stored as integers so
+/// the enclosing summary keeps its derived `Eq`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Gen4SensorData {
+    pub ppg_green: u16,
+    pub ppg_red_ir: u16,
+    pub spo2_red: u16,
+    pub spo2_ir: u16,
+    pub skin_temp_raw: u16,
+    pub ambient_light: u16,
+    pub led_drive_1: u16,
+    pub led_drive_2: u16,
+    pub resp_rate_raw: u16,
+    pub signal_quality: u16,
+    pub skin_contact: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,7 +348,7 @@ pub fn parse_frame(device_type: DeviceType, frame: &[u8]) -> GooseResult<ParsedF
     }
 
     let packet_type = payload.first().copied();
-    let parsed_payload = parse_payload(payload);
+    let parsed_payload = parse_payload(device_type, payload);
     let payload_warnings = parsed_payload
         .as_ref()
         .map(parsed_payload_warnings)
@@ -360,6 +396,43 @@ pub fn build_v5_payload_frame(payload: &[u8]) -> Vec<u8> {
     frame
 }
 
+/// Build a WHOOP Gen4 ("Harvard", e.g. WHOOP 4.0) command frame.
+///
+/// Gen4 framing differs from Gen5/Maverick: a 4-byte header
+/// `[SOF=0xaa][len_lo][len_hi][crc8(len)]` followed by the unpadded payload and
+/// a trailing CRC32, where `len` counts the payload plus the 4-byte CRC32.
+/// Unlike Gen5 there is no flags/role header and no 4-byte payload alignment.
+/// Ported from the openwhoop reference `WhoopPacket::framed_packet`.
+pub fn build_gen4_command_frame(sequence: u8, command: u8, data: &[u8]) -> Vec<u8> {
+    let mut payload = vec![PACKET_TYPE_COMMAND, sequence, command];
+    payload.extend_from_slice(data);
+    build_gen4_payload_frame(&payload)
+}
+
+pub fn build_gen4_payload_frame(payload: &[u8]) -> Vec<u8> {
+    let payload_crc = crc32fast::hash(payload).to_le_bytes();
+    let declared_len = (payload.len() + payload_crc.len()) as u16;
+    let len_bytes = declared_len.to_le_bytes();
+    let mut frame = Vec::with_capacity(4 + payload.len() + payload_crc.len());
+    frame.push(FRAME_START);
+    frame.extend_from_slice(&len_bytes);
+    frame.push(crc8(&len_bytes));
+    frame.extend_from_slice(payload);
+    frame.extend_from_slice(&payload_crc);
+    frame
+}
+
+/// Build a command frame for the given device generation. Gen4 uses the Harvard
+/// 4-byte/CRC8 header; all Gen5 straps (Maverick/Puffin/Goose) use the V5 frame.
+pub fn build_command_frame(device_type: DeviceType, sequence: u8, command: u8, data: &[u8]) -> Vec<u8> {
+    match device_type {
+        DeviceType::Gen4 => build_gen4_command_frame(sequence, command, data),
+        DeviceType::Maverick | DeviceType::Puffin | DeviceType::Goose => {
+            build_v5_command_frame(sequence, command, data)
+        }
+    }
+}
+
 pub fn packet_type_name(packet_type: u8) -> Option<&'static str> {
     Some(match packet_type {
         PACKET_TYPE_COMMAND => "COMMAND",
@@ -393,7 +466,7 @@ pub fn decode_hex_with_whitespace(hex_value: &str) -> GooseResult<Vec<u8>> {
     Ok(hex::decode(stripped)?)
 }
 
-fn parse_payload(payload: &[u8]) -> Option<ParsedPayload> {
+fn parse_payload(device_type: DeviceType, payload: &[u8]) -> Option<ParsedPayload> {
     let packet_type = *payload.first()?;
     match packet_type {
         PACKET_TYPE_COMMAND | PACKET_TYPE_PUFFIN_COMMAND => Some(parse_command_payload(payload)),
@@ -407,7 +480,9 @@ fn parse_payload(payload: &[u8]) -> Option<ParsedPayload> {
         | PACKET_TYPE_REALTIME_RAW_DATA
         | PACKET_TYPE_HISTORICAL_DATA
         | PACKET_TYPE_REALTIME_IMU_DATA_STREAM
-        | PACKET_TYPE_HISTORICAL_IMU_DATA_STREAM => Some(parse_data_packet_payload(payload)),
+        | PACKET_TYPE_HISTORICAL_IMU_DATA_STREAM => {
+            Some(parse_data_packet_payload(device_type, payload))
+        }
         _ => Some(ParsedPayload::Raw {
             data_offset: 1.min(payload.len()),
             data_hex: hex::encode(&payload[1.min(payload.len())..]),
@@ -478,7 +553,7 @@ fn parse_event_payload(payload: &[u8]) -> ParsedPayload {
     }
 }
 
-fn parse_data_packet_payload(payload: &[u8]) -> ParsedPayload {
+fn parse_data_packet_payload(device_type: DeviceType, payload: &[u8]) -> ParsedPayload {
     let mut warnings = Vec::new();
     if payload.len() < 13 {
         warnings.push("data_packet_header_too_short".to_string());
@@ -489,8 +564,13 @@ fn parse_data_packet_payload(payload: &[u8]) -> ParsedPayload {
     if hr_marker_offset.is_some() && hr_present_marker.is_none() {
         warnings.push("history_hr_marker_missing".to_string());
     }
-    let (body_summary, body_warnings) =
-        parse_data_packet_body_summary(payload, packet_k, hr_marker_offset, hr_present_marker);
+    let (body_summary, body_warnings) = parse_data_packet_body_summary(
+        device_type,
+        payload,
+        packet_k,
+        hr_marker_offset,
+        hr_present_marker,
+    );
     warnings.extend(body_warnings);
 
     ParsedPayload::DataPacket {
@@ -510,6 +590,7 @@ fn parse_data_packet_payload(payload: &[u8]) -> ParsedPayload {
 }
 
 fn parse_data_packet_body_summary(
+    device_type: DeviceType,
     payload: &[u8],
     packet_k: Option<u8>,
     hr_marker_offset: Option<usize>,
@@ -518,6 +599,18 @@ fn parse_data_packet_body_summary(
     let Some(packet_k) = packet_k else {
         return (None, Vec::new());
     };
+
+    // Gen4 ("Harvard", WHOOP 4.0) packs full vitals into the history body, so it
+    // needs its own decoder rather than the Gen5 marker/R17/motion split below.
+    // Large packets are IMU/motion frames (deferred to the Gen5 motion summary,
+    // whose accel/gyro offsets are shared); everything else is a per-second
+    // history reading carrying heart rate, RR intervals, and DSP sensor fields.
+    if device_type == DeviceType::Gen4 {
+        let data_len = payload.len().saturating_sub(3);
+        if data_len < GEN4_IMU_MIN_DATA_LEN {
+            return parse_gen4_history_body_summary(payload, packet_k);
+        }
+    }
 
     match packet_k {
         7 | 9 | 12 | 18 | 24 => (
@@ -625,6 +718,87 @@ fn parse_k21_raw_motion_summary(payload: &[u8]) -> (Option<DataPacketBodySummary
         }),
         warnings,
     )
+}
+
+/// Gen4 history data slices at or above this length are IMU/motion frames
+/// (openwhoop `MIN_PACKET_LEN_FOR_IMU`, measured on the data buffer = `payload`
+/// minus the 3-byte `[type, k, status]` prefix).
+const GEN4_IMU_MIN_DATA_LEN: usize = 1188;
+
+/// Decode a Gen4 per-second history reading body.
+///
+/// Heart rate, the RR-interval count, and up to four RR intervals are always
+/// present; V12/V24 packets additionally carry raw DSP sensor fields. Offsets
+/// are the openwhoop `parse_historical_packet*` offsets plus 3 for the
+/// `[type, k, status]` prefix Goose retains in `payload`.
+fn parse_gen4_history_body_summary(
+    payload: &[u8],
+    packet_k: u8,
+) -> (Option<DataPacketBodySummary>, Vec<String>) {
+    let mut warnings = Vec::new();
+
+    let bpm = payload.get(17).copied();
+    if bpm.is_none() {
+        warnings.push("gen4_history_bpm_missing".to_string());
+    }
+
+    let rr_count = payload.get(18).copied();
+    let mut rr_intervals_ms = Vec::new();
+    for index in 0..4 {
+        let offset = 19 + index * 2;
+        match read_u16_le(payload, offset) {
+            Some(value) if value != 0 => rr_intervals_ms.push(value),
+            Some(_) => {}
+            None => break,
+        }
+    }
+    if let Some(count) = rr_count {
+        if usize::from(count) != rr_intervals_ms.len() {
+            warnings.push("gen4_history_rr_count_mismatch".to_string());
+        }
+    }
+
+    let sensor = if matches!(packet_k, 12 | 24) {
+        parse_gen4_sensor_data(payload, &mut warnings)
+    } else {
+        None
+    };
+
+    (
+        Some(DataPacketBodySummary::Gen4History {
+            bpm,
+            rr_intervals_ms,
+            rr_count,
+            sensor,
+            warnings: warnings.clone(),
+        }),
+        warnings,
+    )
+}
+
+/// Decode the raw DSP sensor block from a Gen4 V12/V24 history reading.
+fn parse_gen4_sensor_data(payload: &[u8], warnings: &mut Vec<String>) -> Option<Gen4SensorData> {
+    // openwhoop requires the data slice to be >= 77 bytes; with the 3-byte
+    // prefix that is payload.len() >= 80, which also covers the highest field
+    // read (signal_quality at payload[78..80]).
+    if payload.len() < 80 {
+        warnings.push("gen4_sensor_payload_too_short".to_string());
+        return None;
+    }
+    let read = |offset: usize| read_u16_le(payload, offset).unwrap_or(0);
+    Some(Gen4SensorData {
+        ppg_green: read(29),
+        ppg_red_ir: read(31),
+        spo2_red: read(64),
+        spo2_ir: read(66),
+        skin_temp_raw: read(68),
+        ambient_light: read(70),
+        led_drive_1: read(72),
+        led_drive_2: read(74),
+        resp_rate_raw: read(76),
+        signal_quality: read(78),
+        skin_contact: payload.get(51).copied().unwrap_or(0),
+    })
 }
 
 fn summarize_i16_series(

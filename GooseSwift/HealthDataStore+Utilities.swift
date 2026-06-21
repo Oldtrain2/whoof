@@ -232,6 +232,14 @@ extension HealthDataStore {
   }
 
   static func localHealthMetricJSONStringContainsForbiddenSourceMarker(_ text: String) -> Bool {
+    // Only attempt to parse strings that are actually JSON object/array shaped.
+    // This validator runs over every string of every metric row during snapshot
+    // building (a hot path in profiling); JSONSerialization on plain-text values
+    // is wasted work and returns false anyway, so skip it for non-JSON strings.
+    let trimmed = text.drop { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" }
+    guard let first = trimmed.first, first == "{" || first == "[" else {
+      return false
+    }
     guard let data = text.data(using: .utf8),
           let value = try? JSONSerialization.jsonObject(with: data) else {
       return false
@@ -270,20 +278,40 @@ extension HealthDataStore {
   }
 
   static func localHealthMetricNormalizedMarker(_ text: String) -> String {
-    text
-      .lowercased()
-      .unicodeScalars
-      .map { CharacterSet.alphanumerics.contains($0) ? Character($0) : "_" }
-      .reduce(into: "") { result, character in
-        if character == "_" {
-          if result.last != "_" {
-            result.append(character)
-          }
-        } else {
-          result.append(character)
-        }
+    // Equivalent to: lowercase, map non-alphanumerics to "_", collapse runs of
+    // "_", then trim leading/trailing "_". Rewritten as a single pass (this runs
+    // over every string of every metric row during snapshot building and was the
+    // hottest symbol under streaming load): no intermediate [Character] array, no
+    // reduce closure, no trailing CharacterSet allocation, and an ASCII fast-path
+    // that avoids CharacterSet membership for the common case.
+    let lowered = text.lowercased()
+    var result = ""
+    result.reserveCapacity(lowered.unicodeScalars.count)
+    var pendingUnderscore = false
+    var hasContent = false
+    for scalar in lowered.unicodeScalars {
+      let value = scalar.value
+      let isAlphanumeric: Bool
+      if value < 128 {
+        // `lowered` has no ASCII uppercase, so alphanumeric == 0-9 or a-z.
+        isAlphanumeric = (value >= 48 && value <= 57) || (value >= 97 && value <= 122)
+      } else {
+        isAlphanumeric = CharacterSet.alphanumerics.contains(scalar)
       }
-      .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+      if isAlphanumeric {
+        // Emit a single separator only between content (drops leading "_").
+        if pendingUnderscore && hasContent {
+          result.unicodeScalars.append("_")
+        }
+        pendingUnderscore = false
+        result.unicodeScalars.append(scalar)
+        hasContent = true
+      } else if hasContent {
+        // Defer separators so trailing "_" is never flushed (drops trailing "_").
+        pendingUnderscore = true
+      }
+    }
+    return result
   }
 
   static func passStatus(_ report: [String: Any]?) -> String {
