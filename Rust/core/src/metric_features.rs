@@ -2376,6 +2376,16 @@ pub fn run_recovery_feature_score_report_for_store(
     if prior_strain_0_to_21.is_none() {
         issues.push("prior_strain_missing".to_string());
     }
+    // Respiratory + temperature inputs: prefer trusted provided vitals (the Gen5
+    // sensor path); otherwise derive respiratory from RR-interval RSA (the WHOOP
+    // 4.0 path) with a neutral self-baseline and mark skin temperature
+    // unavailable (NaN, which goose_recovery_v0 neutralizes). Only block when
+    // neither source yields a respiratory rate.
+    let trusted_vitals = provided_vitals
+        .as_ref()
+        .filter(|vitals| vitals.trusted_metric_input);
+    let rsa_respiratory_rpm = rsa_respiratory_rpm_from_hrv(&hrv_report);
+
     if let Some(vitals) = provided_vitals.as_ref() {
         if vitals
             .quality_flags
@@ -2391,9 +2401,25 @@ pub fn run_recovery_feature_score_report_for_store(
         {
             issues.push("provided_resp_temp_provenance_untrusted".to_string());
         }
-    } else {
+    } else if rsa_respiratory_rpm.is_none() {
         issues.push("provided_resp_temp_inputs_missing".to_string());
     }
+
+    // (respiratory_rpm, respiratory_baseline_rpm, skin_temp_delta_c, input_id, rsa_derived)
+    let respiratory_inputs: Option<(f64, f64, f64, String, bool)> =
+        if let Some(vitals) = trusted_vitals {
+            Some((
+                vitals.respiratory_rate_rpm,
+                vitals.respiratory_rate_baseline_rpm,
+                vitals.skin_temp_delta_c,
+                vitals.metric_input_id.clone(),
+                false,
+            ))
+        } else if let Some(rpm) = rsa_respiratory_rpm {
+            Some((rpm, rpm, f64::NAN, "metrics.respiratory_rsa".to_string(), true))
+        } else {
+            None
+        };
 
     let mut recovery_input = None;
     let mut score_result = None;
@@ -2404,7 +2430,13 @@ pub fn run_recovery_feature_score_report_for_store(
         Some(resting_hr_baseline_bpm),
         Some(sleep_score_0_to_100),
         Some(prior_strain_0_to_21),
-        Some(vitals),
+        Some((
+            respiratory_rate_rpm,
+            respiratory_rate_baseline_rpm,
+            skin_temp_delta_c,
+            respiratory_input_id,
+            rsa_derived,
+        )),
     ) = (
         hrv_rmssd_ms,
         hrv_baseline_rmssd_ms,
@@ -2412,9 +2444,7 @@ pub fn run_recovery_feature_score_report_for_store(
         resting_hr_baseline_bpm,
         sleep_score_0_to_100,
         prior_strain_0_to_21,
-        provided_vitals
-            .as_ref()
-            .filter(|vitals| vitals.trusted_metric_input),
+        respiratory_inputs,
     ) {
         let mut input_ids = Vec::new();
         if let Some(input) = &hrv_report.hrv_input {
@@ -2437,7 +2467,7 @@ pub fn run_recovery_feature_score_report_for_store(
         if let Some(input) = &prior_strain_report.strain_input {
             input_ids.extend(input.input_ids.iter().cloned());
         }
-        input_ids.push(vitals.metric_input_id.clone());
+        input_ids.push(respiratory_input_id);
         input_ids.sort();
         input_ids.dedup();
 
@@ -2448,20 +2478,26 @@ pub fn run_recovery_feature_score_report_for_store(
             hrv_baseline_rmssd_ms,
             resting_hr_bpm,
             resting_hr_baseline_bpm,
-            respiratory_rate_rpm: vitals.respiratory_rate_rpm,
-            respiratory_rate_baseline_rpm: vitals.respiratory_rate_baseline_rpm,
-            skin_temp_delta_c: vitals.skin_temp_delta_c,
+            respiratory_rate_rpm,
+            respiratory_rate_baseline_rpm,
+            skin_temp_delta_c,
             sleep_score_0_to_100,
             prior_strain_0_to_21,
             input_ids,
         };
         let mut result = goose_recovery_v0(&input);
-        result
-            .quality_flags
-            .extend(vitals.quality_flags.iter().cloned());
+        if rsa_derived {
+            result
+                .quality_flags
+                .push("respiratory_rate_rsa_derived".to_string());
+        } else if let Some(vitals) = trusted_vitals {
+            result
+                .quality_flags
+                .extend(vitals.quality_flags.iter().cloned());
+            attach_recovery_provided_vitals_provenance(&mut result, vitals);
+        }
         result.quality_flags.sort();
         result.quality_flags.dedup();
-        attach_recovery_provided_vitals_provenance(&mut result, vitals);
         if !result.errors.is_empty() {
             issues.push("recovery_score_errors".to_string());
         }
