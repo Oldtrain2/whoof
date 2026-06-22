@@ -137,6 +137,9 @@ final class MoreDataStore: ObservableObject {
       rawExport: rawExportWindowIssueSummary() == nil ? (databaseExists ? .pending : .unavailable) : .blocked,
       algorithms: .ready,
       debug: coreVersionStatus.hasPrefix("Rust core") ? .ready : .pending,
+      morningAlarm: UserDefaults.standard.bool(forKey: AlarmStorage.enabled)
+        ? (ble.connectionState == "ready" ? .ready : .pending)
+        : .unavailable,
       privacy: privacyLintStatus == "Not linted" ? .pending : .ready,
       support: .pending,
       about: .ready,

@@ -159,6 +159,7 @@
 			D10000000000000000000031 /* SleepV2BevelAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */; };
 			C1000000000000000000000A /* HealthSleepTrendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000A /* HealthSleepTrendViews.swift */; };
 			C1000000000000000000000B /* HealthSleepSheetsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000B /* HealthSleepSheetsViews.swift */; };
+			D10000000000000000000054 /* MorningAlarmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000054 /* MorningAlarmView.swift */; };
 			C1000000000000000000000C /* HealthCardioViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000C /* HealthCardioViews.swift */; };
 			C1000000000000000000000D /* HealthSupplementalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000D /* HealthSupplementalViews.swift */; };
 			C1000000000000000000000E /* HealthPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000E /* HealthPreviews.swift */; };
@@ -308,6 +309,7 @@
 			D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2BevelAnalysisViews.swift; sourceTree = "<group>"; };
 			C2000000000000000000000A /* HealthSleepTrendViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSleepTrendViews.swift; sourceTree = "<group>"; };
 			C2000000000000000000000B /* HealthSleepSheetsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSleepSheetsViews.swift; sourceTree = "<group>"; };
+			D20000000000000000000054 /* MorningAlarmView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorningAlarmView.swift; sourceTree = "<group>"; };
 			C2000000000000000000000C /* HealthCardioViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthCardioViews.swift; sourceTree = "<group>"; };
 			C2000000000000000000000D /* HealthSupplementalViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSupplementalViews.swift; sourceTree = "<group>"; };
 			C2000000000000000000000E /* HealthPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthPreviews.swift; sourceTree = "<group>"; };
@@ -460,6 +462,7 @@
 					D20000000000000000000030 /* SleepV2BevelTrendViews.swift */,
 					D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */,
 					C2000000000000000000000B /* HealthSleepSheetsViews.swift */,
+					D20000000000000000000054 /* MorningAlarmView.swift */,
 					C2000000000000000000000C /* HealthCardioViews.swift */,
 					C2000000000000000000000D /* HealthSupplementalViews.swift */,
 					D2000000000000000000002C /* SleepBridgeViews.swift */,
@@ -749,6 +752,7 @@
 					D10000000000000000000031 /* SleepV2BevelAnalysisViews.swift in Sources */,
 					C1000000000000000000000A /* HealthSleepTrendViews.swift in Sources */,
 					C1000000000000000000000B /* HealthSleepSheetsViews.swift in Sources */,
+					D10000000000000000000054 /* MorningAlarmView.swift in Sources */,
 					C1000000000000000000000C /* HealthCardioViews.swift in Sources */,
 					C1000000000000000000000D /* HealthSupplementalViews.swift in Sources */,
 					C1000000000000000000000E /* HealthPreviews.swift in Sources */,

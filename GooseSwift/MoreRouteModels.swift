@@ -10,6 +10,7 @@ enum MoreRoute: String, CaseIterable, Identifiable, Hashable {
   case rawExport
   case algorithms
   case debug
+  case morningAlarm
   case privacy
   case support
   case about
@@ -28,6 +29,7 @@ enum MoreRoute: String, CaseIterable, Identifiable, Hashable {
     case .rawExport: "Raw Export"
     case .algorithms: "Algorithms"
     case .debug: "Debug"
+    case .morningAlarm: "Morning Alarm"
     case .privacy: "Privacy"
     case .support: "Support"
     case .about: "About"
@@ -46,6 +48,7 @@ enum MoreRoute: String, CaseIterable, Identifiable, Hashable {
     case .rawExport: "Bundle windows, data scopes, validation, and lint"
     case .algorithms: "Operational algorithm preferences"
     case .debug: "Rust, parser, command groups, and gated controls"
+    case .morningAlarm: "Daily wake-up vibration on your band"
     case .privacy: "Local data, export, lint, and deletion state"
     case .support: "Logs, support bundles, and troubleshooting"
     case .about: "App, Rust core, and licenses"
@@ -64,6 +67,7 @@ enum MoreRoute: String, CaseIterable, Identifiable, Hashable {
     case .rawExport: "square.and.arrow.up"
     case .algorithms: "function"
     case .debug: "terminal"
+    case .morningAlarm: "alarm"
     case .privacy: "hand.raised"
     case .support: "lifepreserver"
     case .about: "info.circle"
@@ -82,6 +86,7 @@ enum MoreRoute: String, CaseIterable, Identifiable, Hashable {
     case .rawExport: \.rawExport
     case .algorithms: \.algorithms
     case .debug: \.debug
+    case .morningAlarm: \.morningAlarm
     case .privacy: \.privacy
     case .support: \.support
     case .about: \.about
@@ -91,7 +96,7 @@ enum MoreRoute: String, CaseIterable, Identifiable, Hashable {
 
   static let deviceRoutes: [MoreRoute] = [.device]
   static let appRoutes: [MoreRoute] = [.healthSync]
-  static let settingsRoutes: [MoreRoute] = [.privacy]
+  static let settingsRoutes: [MoreRoute] = [.morningAlarm, .privacy]
   static let supportRoutes: [MoreRoute] = [.support, .about]
   static let developerRoutes: [MoreRoute] = [.developer]
   static let developerToolRoutes: [MoreRoute] = [.connectionLab, .capture, .localStore, .rawExport, .algorithms, .debug]
@@ -107,6 +112,7 @@ struct MoreRouteStatus {
   var rawExport: MoreStatusKind
   var algorithms: MoreStatusKind
   var debug: MoreStatusKind
+  var morningAlarm: MoreStatusKind
   var privacy: MoreStatusKind
   var support: MoreStatusKind
   var about: MoreStatusKind

@@ -113,6 +113,8 @@ struct MoreView: View {
       }
     case .debug:
       MoreDebugView(store: store)
+    case .morningAlarm:
+      MorningAlarmView(ble: model.ble)
     case .privacy:
       MorePrivacyView(store: store)
     case .support:

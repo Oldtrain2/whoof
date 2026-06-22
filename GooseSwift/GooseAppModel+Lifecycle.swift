@@ -8,6 +8,7 @@ extension WhoofAppModel {
     ble.record(source: "app.lifecycle", title: "scene_phase", body: "\(phase) | \(power.summary)")
     if phase == "active" || phase == "foreground" {
       maybeAutoSyncHistory(reason: "scene_phase_\(phase)")
+      maybePushMorningAlarm(reason: "scene_phase_\(phase)")
     }
     guard overnightGuardActive else {
       return
@@ -58,6 +59,20 @@ extension WhoofAppModel {
     lastAutoHistorySyncAt = now
     ble.record(source: "app.lifecycle", title: "auto_history_sync", body: reason)
     ble.syncHistoricalPackets()
+  }
+
+  func maybePushMorningAlarm(reason: String) {
+    guard UserDefaults.standard.bool(forKey: AlarmStorage.enabled) else { return }
+    guard ble.canWriteAlarm else { return }
+    let now = Date()
+    guard now.timeIntervalSince(lastMorningAlarmPushAt) >= Self.morningAlarmAutoPushInterval else { return }
+    lastMorningAlarmPushAt = now
+    let defaults = UserDefaults.standard
+    let hour   = defaults.object(forKey: AlarmStorage.hour) != nil ? defaults.integer(forKey: AlarmStorage.hour) : 7
+    let minute = defaults.integer(forKey: AlarmStorage.minute)
+    guard let base = Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: now) else { return }
+    ble.record(source: "app.morning_alarm", title: "auto_push", body: "reason=\(reason) time=\(hour):\(String(format: "%02d", minute))")
+    ble.setWhoopAlarm(at: base)
   }
 
   func completeOnboarding() {

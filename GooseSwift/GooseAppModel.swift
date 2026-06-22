@@ -28,6 +28,8 @@ final class WhoofAppModel: ObservableObject {
   @Published var respiratoryPacketWatchStatus = "Not watching K18 respiratory history"
   var lastAutoHistorySyncAt = Date.distantPast
   static let autoHistorySyncMinInterval: TimeInterval = 3 * 60 * 60
+  var lastMorningAlarmPushAt = Date.distantPast
+  static let morningAlarmAutoPushInterval: TimeInterval = 4 * 60 * 60
   @Published var overnightGuardActive = false
   @Published var overnightGuardStatus = "Not started"
   @Published var overnightGuardReadinessStatus = "pending"
