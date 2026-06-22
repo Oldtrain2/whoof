@@ -225,6 +225,12 @@ struct StorageCheckArgs {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct StorageBackupArgs {
+    database_path: String,
+    destination_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct ApplyDefaultPreferencesArgs {
     database_path: String,
     #[serde(default = "default_algorithm_scope")]
@@ -2524,6 +2530,10 @@ fn handle_bridge_request_inner(request: BridgeRequest) -> BridgeResponse {
             .and_then(storage_check_bridge)
             .map(|value| bridge_ok(&request.request_id, value))
             .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
+        "storage.backup_database" => request_args::<StorageBackupArgs>(&request)
+            .and_then(storage_backup_bridge)
+            .map(|value| bridge_ok(&request.request_id, value))
+            .unwrap_or_else(|error| bridge_error(&request.request_id, "method_error", error)),
         "settings.apply_default_algorithm_preferences" => {
             request_args::<ApplyDefaultPreferencesArgs>(&request)
                 .and_then(apply_default_preferences_bridge)
@@ -2808,6 +2818,26 @@ fn timeline_from_decoded_frames_bridge(args: TimelineArgs) -> GooseResult<serde_
     let rows = packet_timeline_from_decoded_frames(&args.decoded_frames)?;
     serde_json::to_value(rows)
         .map_err(|error| GooseError::message(format!("cannot serialize timeline rows: {error}")))
+}
+
+fn storage_backup_bridge(args: StorageBackupArgs) -> GooseResult<serde_json::Value> {
+    if args.database_path.trim().is_empty() {
+        return Err(GooseError::message("database_path is required"));
+    }
+    if args.destination_path.trim().is_empty() {
+        return Err(GooseError::message("destination_path is required"));
+    }
+    let store = open_bridge_store(&args.database_path)?;
+    store.backup_database_into(&args.destination_path)?;
+    let byte_count = std::fs::metadata(&args.destination_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    Ok(json!({
+        "schema": "goose.storage-backup.v1",
+        "ok": true,
+        "destination": args.destination_path,
+        "byte_count": byte_count,
+    }))
 }
 
 fn storage_check_bridge(args: StorageCheckArgs) -> GooseResult<serde_json::Value> {

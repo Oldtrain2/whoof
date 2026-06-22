@@ -85,6 +85,56 @@ final class HealthDataStore: ObservableObject {
     return directory.appendingPathComponent("goose.sqlite").path
   }
 
+  /// Write a single-file backup of the local database to a temporary URL the user
+  /// can save to Files / iCloud Drive. The app container is wiped on reinstall
+  /// (no iCloud on the free signing tier), so this backup is how data survives a
+  /// weekly re-sideload. Returns the file URL, or nil on failure.
+  static func backupDatabaseToTemporaryFile() -> URL? {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyyMMdd-HHmmss"
+    let name = "Whoof-Backup-\(formatter.string(from: Date())).sqlite"
+    let destination = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+    try? FileManager.default.removeItem(at: destination)
+    do {
+      _ = try WhoofRustBridge().request(
+        method: "storage.backup_database",
+        args: [
+          "database_path": defaultDatabasePath(),
+          "destination_path": destination.path,
+        ]
+      )
+      return FileManager.default.fileExists(atPath: destination.path) ? destination : nil
+    } catch {
+      return nil
+    }
+  }
+
+  /// Replace the local database with a previously backed-up file (picked from
+  /// Files / iCloud Drive). Removes any WAL/SHM sidecars so the restore is clean.
+  /// The app should be restarted afterward to load the restored data.
+  static func restoreDatabase(from url: URL) -> Bool {
+    let fileManager = FileManager.default
+    let databasePath = defaultDatabasePath()
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer {
+      if scoped {
+        url.stopAccessingSecurityScopedResource()
+      }
+    }
+    do {
+      for suffix in ["", "-wal", "-shm"] {
+        let path = databasePath + suffix
+        if fileManager.fileExists(atPath: path) {
+          try fileManager.removeItem(atPath: path)
+        }
+      }
+      try fileManager.copyItem(at: url, to: URL(fileURLWithPath: databasePath))
+      return true
+    } catch {
+      return false
+    }
+  }
+
   var usesSampleData: Bool {
     false
   }

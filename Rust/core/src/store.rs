@@ -939,6 +939,23 @@ impl GooseStore {
         Ok(Self { conn })
     }
 
+    /// Write a single consistent copy of the database to `destination` (VACUUM
+    /// INTO merges any WAL, so the result is one self-contained file). Used for
+    /// user-controlled backups that survive an app reinstall, since the app
+    /// container is wiped on uninstall.
+    pub fn backup_database_into(&self, destination: &str) -> GooseResult<()> {
+        validate_required("destination", destination)?;
+        if std::path::Path::new(destination).exists() {
+            std::fs::remove_file(destination).map_err(|error| {
+                GooseError::message(format!("cannot overwrite backup destination: {error}"))
+            })?;
+        }
+        let escaped = destination.replace('\'', "''");
+        self.conn
+            .execute_batch(&format!("VACUUM INTO '{escaped}'"))?;
+        Ok(())
+    }
+
     pub fn open_in_memory() -> GooseResult<Self> {
         let conn = Connection::open_in_memory()?;
         let store = Self { conn };

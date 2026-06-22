@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MorePrivacyView: View {
   @ObservedObject var store: MoreDataStore
@@ -78,6 +79,9 @@ struct MoreSupportView: View {
 struct MoreAboutView: View {
   @EnvironmentObject private var model: WhoofAppModel
   @ObservedObject var store: MoreDataStore
+  @State private var backupURL: URL?
+  @State private var showingRestoreImporter = false
+  @State private var dataActionMessage: String?
 
   var body: some View {
     List {
@@ -93,9 +97,54 @@ struct MoreAboutView: View {
         MoreInfoRow(title: "Hello", value: model.helloSummary, systemImage: "hand.wave", status: model.helloSummary.hasPrefix("GET_HELLO") ? .ready : .pending)
       }
 
+      Section {
+        Text("This build is wiped when the app is reinstalled (about weekly on a free signing profile). Back up to Files or iCloud Drive, then restore after reinstalling to keep your history.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Button {
+          backupURL = HealthDataStore.backupDatabaseToTemporaryFile()
+          dataActionMessage = backupURL == nil ? "Backup failed." : "Backup ready — tap Save / Share."
+        } label: {
+          Label("Back Up Data", systemImage: "arrow.up.doc")
+        }
+        if let backupURL {
+          ShareLink(item: backupURL) {
+            Label("Save / Share Backup", systemImage: "square.and.arrow.up")
+          }
+        }
+        Button {
+          showingRestoreImporter = true
+        } label: {
+          Label("Restore Data", systemImage: "arrow.down.doc")
+        }
+        if let dataActionMessage {
+          Text(dataActionMessage)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("Data Backup")
+      }
     }
     .gooseListBackground()
     .navigationTitle("About")
+    .fileImporter(
+      isPresented: $showingRestoreImporter,
+      allowedContentTypes: [.data],
+      allowsMultipleSelection: false
+    ) { result in
+      switch result {
+      case .success(let urls):
+        guard let url = urls.first else {
+          return
+        }
+        dataActionMessage = HealthDataStore.restoreDatabase(from: url)
+          ? "Restored. Quit and reopen the app to load your data."
+          : "Restore failed — pick a Whoof backup file."
+      case .failure:
+        dataActionMessage = "Restore cancelled."
+      }
+    }
     .onAppear {
       store.refreshBridgeStatus(model: model)
     }
