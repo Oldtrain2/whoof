@@ -339,14 +339,22 @@ extension WhoofBLEClient {
       record(level: .warn, source: "ble.alarm", title: "alarm.write.blocked", body: commandCharacteristic.uuid.uuidString)
       return
     }
-    guard let writeType = writeType(for: commandCharacteristic) else {
+    // Gen4 (61080002) requires an authenticated link for .withResponse writes but
+    // accepts .writeWithoutResponse without auth; prefer that path when available.
+    let writeType: CBCharacteristicWriteType
+    if activeCommandGeneration == .gen4,
+       commandCharacteristic.properties.contains(.writeWithoutResponse) {
+      writeType = .withoutResponse
+    } else if let wt = self.writeType(for: commandCharacteristic) {
+      writeType = wt
+    } else {
       alarmCommandStatus = "Alarm write blocked: command characteristic is not writable"
       record(level: .warn, source: "ble.alarm", title: "alarm.write.blocked", body: commandCharacteristic.uuid.uuidString)
       return
     }
 
     let sequence = nextAlarmSequence()
-    let frame = Self.buildV5CommandFrame(
+    let frame = buildCommandFrame(
       sequence: sequence,
       command: kind.commandNumber,
       data: kind.payload
