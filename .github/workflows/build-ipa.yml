@@ -1,0 +1,32 @@
+name: Build unsigned IPA
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust iOS target
+        run: rustup target add aarch64-apple-ios
+
+      - name: Build app (unsigned)
+        run: |
+          xcodebuild -project GooseSwift.xcodeproj -target GooseSwift \
+            -configuration Release -sdk iphoneos \
+            SYMROOT="$PWD/output" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R output/Release-iphoneos/GooseSwift.app Payload/
+          zip -r Whoof-unsigned.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Whoof-unsigned-ipa
+          path: Whoof-unsigned.ipa
